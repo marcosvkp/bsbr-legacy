@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.integrations.scoresaber import ScoreSaberClient
@@ -150,14 +150,11 @@ async def sync_difficulty_scores(
         total = float(difficulty.total_stars)
         share_acc, share_tech, share_speed = _shares_of(difficulty)
 
-        # Upsert por chave única (player_id, difficulty_id, time_set).
-        # Normaliza para naive-UTC: no Postgres (timestamptz) o SELECT devolve
-        # datetime com tz e o parse gera naive — sem normalizar a chave nunca casa.
-        def _naive(dt: datetime) -> datetime:
-            return dt.replace(tzinfo=None) if dt.tzinfo else dt
-
+        # Upsert por (player_id, difficulty_id): 1 score por jogador na
+        # dificuldade — o score mais recente (do leaderboard atual) substitui
+        # o anterior, inclusive trocando o time_set.
         existing_rows = {
-            (s.player_id, _naive(s.time_set)): s
+            (s.player_id, s.difficulty_id): s
             for s in (
                 await session.scalars(select(Score).where(Score.difficulty_id == difficulty_id))
             ).all()
@@ -174,13 +171,17 @@ async def sync_difficulty_scores(
                 share_tech=share_tech,
                 share_speed=share_speed,
             )
-            row = existing_rows.get((player.id, _naive(item["time_set"])))
+            row = existing_rows.get((player.id, difficulty_id))
             if row is None:
                 row = Score(player_id=player.id, difficulty_id=difficulty_id, time_set=item["time_set"])
                 session.add(row)
+                # registra no dict para payloads seguintes do mesmo player
+                # na mesma dificuldade caírem em UPDATE, não em INSERT duplicado
+                existing_rows[(player.id, difficulty_id)] = row
                 stats.inserted += 1
             else:
                 stats.updated += 1
+                row.time_set = item["time_set"]
             row.score = item["score"]
             row.acc = item["acc"]
             row.modifiers = item["modifiers"]
@@ -192,6 +193,20 @@ async def sync_difficulty_scores(
             row.pp_speed = sub["pp_speed"]
             row.leaderboard_rank = item["leaderboard_rank"]
             row.ss_player_pp = item["ss_player_pp"]
+
+        # 1 score por jogador na dificuldade: remove os scores anteriores do
+        # mesmo (player, difficulty) — o leaderboard do ScoreSaber só guarda o
+        # mais recente por player, então o antigo deve sair do banco.
+        # flush garante que inserts/updates pendentes tenham id antes do delete
+        await session.flush()
+        for (pid, did), row in existing_rows.items():
+            await session.execute(
+                delete(Score).where(
+                    Score.player_id == pid,
+                    Score.difficulty_id == did,
+                    Score.id != row.id,
+                )
+            )
 
         await session.commit()
         return stats

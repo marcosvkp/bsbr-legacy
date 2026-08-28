@@ -20,6 +20,9 @@ from app.core.db import Base
 class Score(Base):
     __tablename__ = "scores"
     __table_args__ = (
+        # Chave histórica (player, difficulty, time_set). A deduplicação de
+        # "1 score por jogador na dificuldade" é garantida pelo sync
+        # (o mais recente substitui o anterior) — ver services/sync.
         UniqueConstraint(
             "player_id", "difficulty_id", "time_set", name="uq_scores_player_difficulty_time_set"
         ),

@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Difficulty, Map, MapStatus, Player, Score
@@ -60,7 +60,6 @@ async def persist_live_score(session: AsyncSession, live: LiveScore) -> dict | N
             select(Score).where(
                 Score.player_id == player.id,
                 Score.difficulty_id == difficulty.id,
-                Score.time_set == time_set,
             )
         )
     ).first()
@@ -69,6 +68,9 @@ async def persist_live_score(session: AsyncSession, live: LiveScore) -> dict | N
     if is_new:
         existing = Score(player_id=player.id, difficulty_id=difficulty.id, time_set=time_set)
         session.add(existing)
+    else:
+        # mesmo jogador na mesma dificuldade: o score ao vivo (mais recente) substitui
+        existing.time_set = time_set
 
     existing.score = live.score
     existing.acc = live.acc
@@ -92,6 +94,18 @@ async def persist_live_score(session: AsyncSession, live: LiveScore) -> dict | N
         existing.pp_speed = sub["pp_speed"]
     elif live.pp is not None:
         existing.pp = live.pp
+
+    # 1 score por (player, difficulty): remove os anteriores do mesmo jogador.
+    # flush antes garante id real do score atual (Score.id != None vira
+    # "IS NOT NULL" no SQL e deletaria tudo).
+    await session.flush()
+    await session.execute(
+        delete(Score).where(
+            Score.player_id == player.id,
+            Score.difficulty_id == difficulty.id,
+            Score.id != existing.id,
+        )
+    )
 
     await session.commit()
     result = {"inserted" if is_new else "updated": existing.id}

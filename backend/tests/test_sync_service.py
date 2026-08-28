@@ -95,19 +95,20 @@ async def test_sync_inserts_and_computes_pp(session, difficulty_id):
     stats = await sync_difficulty_scores(session, difficulty_id, client=FakeScoreSaberClient(PAYLOADS))
     assert stats.fetched == 5
     assert stats.skipped_nf == 2
-    assert stats.inserted == 3
+    assert stats.inserted == 2  # Alice (1º payload) + Bob
+    assert stats.updated == 1  # 2º payload da Alice substitui o 1º
     assert not stats.errors
 
     rows = (await session.scalars(select(Score))).all()
-    assert len(rows) == 3
-    alice = [r for r in rows if r.acc == pytest.approx(0.95)]
+    assert len(rows) == 2  # 1 score por jogador na dificuldade
+    alice = [r for r in rows if r.acc == pytest.approx(0.90)]
     assert alice and alice[0].pp > 0
-    expected = decompose_pp(5.0, 95.0, share_acc=0.2, share_tech=0.6, share_speed=0.2)
+    expected = decompose_pp(5.0, 90.0, share_acc=0.2, share_tech=0.6, share_speed=0.2)
     assert alice[0].pp == pytest.approx(expected["pp_total"])
     assert alice[0].pp_tech == pytest.approx(expected["pp_tech"])
     assert alice[0].pp_speed == pytest.approx(expected["pp_speed"])
-    # curva do legado intacta: pp_total == get_pp(5.0, 95.0)
-    assert alice[0].pp == pytest.approx(get_pp(5.0, 95.0))
+    # curva do legado intacta: pp_total == get_pp(5.0, 90.0)
+    assert alice[0].pp == pytest.approx(get_pp(5.0, 90.0))
     # players criados com avatar do payload do score
     players = (await session.scalars(select(Player))).all()
     assert {p.name for p in players} >= {"Alice", "Bob"}
@@ -120,7 +121,8 @@ async def test_sync_idempotent(session, difficulty_id):
     fake = FakeScoreSaberClient(PAYLOADS)
     first = await sync_difficulty_scores(session, difficulty_id, client=fake)
     second = await sync_difficulty_scores(session, difficulty_id, client=fake)
-    assert first.inserted == 3
+    assert first.inserted == 2
+    assert first.updated == 1
     assert second.inserted == 0
     assert second.updated == 3
 
