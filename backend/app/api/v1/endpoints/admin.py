@@ -15,7 +15,12 @@ from app.core.config import get_settings
 from app.core.db import get_db
 from app.models import Batch, Difficulty, Map, MapStatus, ReweightSuggestion, SuggestionStatus
 from app.services.qualification import approve_map, qualify_source
-from app.services.reweight.service import apply_suggestion, collect_suggestions, reject_suggestion
+from app.services.reweight.service import (
+    apply_suggestion,
+    collect_suggestions,
+    preview_suggestions,
+    reject_suggestion,
+)
 
 from .oauth import admin_session_ok
 
@@ -238,6 +243,15 @@ async def run_collect(
     await cache.invalidate_prefix("map:")
     await cache.invalidate_prefix("player:")
     return stats
+
+
+@router.post("/reweight/preview")
+async def run_preview(
+    _: None = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Simulação em memória do reweight (impacto no ranking) — não persiste."""
+    return await preview_suggestions(db)
 
 
 @router.post("/reweight/{suggestion_id}/apply")

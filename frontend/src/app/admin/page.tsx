@@ -8,6 +8,7 @@ import type {
   AdminCandidate,
   BatchStats,
   QualifyPreviewResponse,
+  ReweightPreviewResponse,
   ReweightSuggestion,
   SuggestionsResponse,
 } from "@/lib/types";
@@ -46,6 +47,13 @@ export default function AdminPage() {
   const [listError, setListError] = useState<string | null>(null);
 
   const [actingId, setActingId] = useState<number | null>(null);
+
+  const [collectLoading, setCollectLoading] = useState(false);
+  const [collectError, setCollectError] = useState<string | null>(null);
+  const [collectStats, setCollectStats] = useState<Record<string, number> | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewData, setPreviewData] = useState<ReweightPreviewResponse | null>(null);
 
   const [batches, setBatches] = useState<AdminBatchItem[] | null>(null);
   const [batchesError, setBatchesError] = useState<string | null>(null);
@@ -96,6 +104,45 @@ export default function AdminPage() {
       setListLoading(false);
     }
   }, []);
+
+  const runCollect = useCallback(async () => {
+    if (!token) return;
+    setCollectLoading(true);
+    setCollectError(null);
+    setCollectStats(null);
+    try {
+      const stats = await postJson<Record<string, number>>("/admin/reweight/collect", {
+        auto_apply: false,
+      }, { headers: { "X-Admin-Token": token } });
+      setCollectStats(stats);
+      await loadSuggestions(token);
+    } catch (cause) {
+      setCollectError(
+        cause instanceof ApiError ? cause.message : "Falha ao coletar sugestões.",
+      );
+    } finally {
+      setCollectLoading(false);
+    }
+  }, [token, loadSuggestions]);
+
+  const runPreview = useCallback(async () => {
+    if (!token) return;
+    setPreviewLoading(true);
+    setPreviewError(null);
+    setPreviewData(null);
+    try {
+      const data = await postJson<ReweightPreviewResponse>("/admin/reweight/preview", {}, {
+        headers: { "X-Admin-Token": token },
+      });
+      setPreviewData(data);
+    } catch (cause) {
+      setPreviewError(
+        cause instanceof ApiError ? cause.message : "Falha ao simular o reweight.",
+      );
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, [token]);
 
   const loadBatches = useCallback(async (activeToken: string) => {
     setBatchesError(null);
@@ -409,12 +456,32 @@ export default function AdminPage() {
         <CardHeader className="flex-row items-center justify-between">
           <CardTitle>Sugestões de reweight (pendentes)</CardTitle>
           {token ? (
-            <Button variant="ghost" size="sm" onClick={() => loadSuggestions(token)}>
-              Recarregar
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={runPreview} disabled={previewLoading}>
+                {previewLoading ? <Spinner size={14} /> : null}
+                Prévia (simular)
+              </Button>
+              <Button variant="ghost" size="sm" onClick={runCollect} disabled={collectLoading}>
+                {collectLoading ? <Spinner size={14} /> : null}
+                Coletar sugestões
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => loadSuggestions(token)}>
+                Recarregar
+              </Button>
+            </div>
           ) : null}
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
+          {collectError ? (
+            <p role="alert" className="text-sm font-medium text-danger">{collectError}</p>
+          ) : null}
+          {collectStats ? (
+            <div className="flex flex-wrap gap-2 text-sm">
+              <Badge variant="secondary">{collectStats.evaluated ?? 0} avaliadas</Badge>
+              <Badge variant="warning">{collectStats.pending ?? 0} pendentes</Badge>
+              <Badge variant="success">{collectStats.auto_applied ?? 0} auto-aplicadas</Badge>
+            </div>
+          ) : null}
           {!token ? (
             <p className="py-4 text-sm text-muted">
               Informe o X-Admin-Token acima para ver a fila.
@@ -496,6 +563,108 @@ export default function AdminPage() {
               Nenhuma sugestão pendente. A fila é populada pelo batch semanal.
             </p>
           )}
+
+          {previewError ? (
+            <p role="alert" className="border-t border-border-subtle pt-3 text-sm font-medium text-danger">
+              {previewError}
+            </p>
+          ) : null}
+
+          {previewData ? (
+            <div className="flex flex-col gap-4 border-t border-border-subtle pt-4">
+              <div>
+                <h3 className="mb-2 text-sm font-bold uppercase tracking-wider text-muted">
+                  Impacto por dificuldade ({formatInt(previewData.difficulties.length)})
+                </h3>
+                {previewData.difficulties.length === 0 ? (
+                  <p className="text-sm text-muted">Nenhuma dificuldade com amostra suficiente para sugestão.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[680px] text-sm">
+                      <thead>
+                        <tr className="border-b border-border-subtle text-left text-[11px] uppercase tracking-wider text-muted">
+                          <th className="py-2 pr-3 font-bold">Mapa</th>
+                          <th className="py-2 pr-3 font-bold">Diff</th>
+                          <th className="py-2 pr-3 text-right font-bold">Stars</th>
+                          <th className="py-2 pr-3 text-right font-bold">Sugerido</th>
+                          <th className="py-2 pr-3 text-right font-bold">Δ</th>
+                          <th className="py-2 pr-3 text-center font-bold">Conf</th>
+                          <th className="py-2 pr-3 text-center font-bold">Auto</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {previewData.difficulties.map((d) => (
+                          <tr key={d.difficulty_id} className="border-b border-border-subtle/50 last:border-b-0">
+                            <td className="py-2 pr-3 font-medium">{d.map_name}</td>
+                            <td className="py-2 pr-3 text-muted">{d.difficulty}</td>
+                            <td className="py-2 pr-3 text-right tabular-nums">{formatNumber(d.current_stars)}</td>
+                            <td className="py-2 pr-3 text-right font-bold tabular-nums">
+                              {formatNumber(d.suggested_stars)}
+                            </td>
+                            <td className={`py-2 pr-3 text-right font-bold tabular-nums ${d.delta_stars > 0 ? "text-success" : d.delta_stars < 0 ? "text-danger" : ""}`}>
+                              {d.delta_stars > 0 ? "+" : ""}{formatNumber(d.delta_stars)}
+                            </td>
+                            <td className="py-2 pr-3 text-center text-xs">{d.confidence}</td>
+                            <td className="py-2 pr-3 text-center">
+                              {d.auto_appliable ? <Badge variant="success">sim</Badge> : <span className="text-muted/40">—</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <h3 className="mb-2 text-sm font-bold uppercase tracking-wider text-muted">
+                  Ranking simulado (top {formatInt(previewData.ranking.length)})
+                </h3>
+                {previewData.ranking.length === 0 ? (
+                  <p className="text-sm text-muted">Nenhuma mudança de posição/PP no topo do ranking.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[560px] text-sm">
+                      <thead>
+                        <tr className="border-b border-border-subtle text-left text-[11px] uppercase tracking-wider text-muted">
+                          <th className="py-2 pr-3 font-bold">Jogador</th>
+                          <th className="py-2 pr-3 text-center font-bold">Rank</th>
+                          <th className="py-2 pr-3 text-right font-bold">PP</th>
+                          <th className="py-2 pr-3 text-right font-bold">Δ</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {previewData.ranking.map((row) => (
+                          <tr key={row.name} className="border-b border-border-subtle/50 last:border-b-0">
+                            <td className="py-2 pr-3 font-medium">{row.name}</td>
+                            <td className="py-2 pr-3 text-center tabular-nums">
+                              {row.rank_before !== row.rank_after ? (
+                                <span>
+                                  <span className="text-muted">#{row.rank_before}</span>
+                                  {" → "}
+                                  <span className={`font-bold ${row.rank_after! < row.rank_before! ? "text-success" : "text-danger"}`}>
+                                    #{row.rank_after}
+                                  </span>
+                                </span>
+                              ) : (
+                                <span className="text-muted">#{row.rank_after}</span>
+                              )}
+                            </td>
+                            <td className="py-2 pr-3 text-right tabular-nums">
+                              {formatNumber(row.pp_before)} → {formatNumber(row.pp_after)}
+                            </td>
+                            <td className={`py-2 pr-3 text-right font-bold tabular-nums ${row.delta_pp > 0 ? "text-success" : row.delta_pp < 0 ? "text-danger" : "text-muted"}`}>
+                              {row.delta_pp > 0 ? "+" : ""}{formatNumber(row.delta_pp)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 

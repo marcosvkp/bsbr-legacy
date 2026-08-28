@@ -139,3 +139,46 @@ async def test_dedup_pending_per_difficulty(session):
     await collect_suggestions(session)
     sugs = (await session.scalars(select(ReweightSuggestion))).all()
     assert len(sugs) == 1
+
+
+async def test_preview_suggestions_reports_impact_without_persisting(session):
+    """preview_suggestions analisa em memória e devolve impacto no ranking."""
+    from app.services.reweight.service import preview_suggestions
+
+    d = await make_difficulty(session)
+    # 5★ → esperada 90.5%; mediana 91% → delta ≈ -0.13★, confiança alta
+    await seed_scores(session, d.id, [0.91] * 120)
+    # o preview simula sobre o Score.pp (preenchido pelo sync em produção)
+    from app.models import Score
+
+    for s in (await session.scalars(select(Score))).all():
+        s.pp = 100.0
+        s.pp_acc = 20.0
+        s.pp_tech = 60.0
+        s.pp_speed = 20.0
+    await session.commit()
+
+    data = await preview_suggestions(session)
+    assert len(data["difficulties"]) == 1
+    item = data["difficulties"][0]
+    assert item["map_name"] == "Mapa"
+    assert item["difficulty"] == "ExpertPlus"
+    assert item["current_stars"] == 5.0
+    assert item["suggested_stars"] < 5.0
+    assert item["delta_stars"] < 0
+    assert item["confidence"] == "high"
+    assert item["sample_size"] == 120
+    assert item["auto_appliable"] is True
+
+    assert len(data["ranking"]) >= 1
+    row = data["ranking"][0]
+    assert row["name"] == "Jogador"
+    assert row["rank_before"] == 1 and row["rank_after"] == 1
+    assert row["pp_after"] < row["pp_before"]
+
+    # nada persistido (sem sugestões nem mudança de stars)
+    from app.models import ReweightSuggestion
+
+    assert (await session.scalars(select(ReweightSuggestion))).all() == []
+    await session.refresh(d)
+    assert d.total_stars == 5.0

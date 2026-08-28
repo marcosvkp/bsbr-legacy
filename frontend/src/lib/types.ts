@@ -268,6 +268,34 @@ export interface ReweightSuggestion {
   reason: string;
 }
 
+export interface ReweightPreviewDifficulty {
+  difficulty_id: number;
+  map_name: string;
+  difficulty: string;
+  current_stars: number;
+  suggested_stars: number;
+  delta_stars: number;
+  confidence: string;
+  sample_size: number;
+  observed_acc: number | null;
+  expected_acc: number | null;
+  auto_appliable: boolean;
+}
+
+export interface ReweightPreviewRankingRow {
+  name: string;
+  rank_before: number | null;
+  rank_after: number | null;
+  pp_before: number;
+  pp_after: number;
+  delta_pp: number;
+}
+
+export interface ReweightPreviewResponse {
+  difficulties: ReweightPreviewDifficulty[];
+  ranking: ReweightPreviewRankingRow[];
+}
+
 export interface SuggestionsResponse {
   status: string;
   items: ReweightSuggestion[];

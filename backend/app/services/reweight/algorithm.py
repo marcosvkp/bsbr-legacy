@@ -14,8 +14,16 @@ import statistics
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
-MIN_SCORES = 10
-MIN_PLAYER_PP = 1000.0
+# Amostra mínima por dificuldade. O legado usava 10 (leaderboards globais com
+# centenas de scores); os leaderboards BR do BSBR têm ~10-15 scores, então o
+# mínimo foi reescalado — a confiança (low/medium/high) já sinaliza amostras
+# pequenas e nada é auto-aplicado abaixo de high.
+MIN_SCORES = 6
+# PP mínimo do jogador para a amostra contar. O valor original (1000.0) era
+# calibrado para a escala do ScoreSaber; no BSBR a curva própria dá valores
+# menores (top ~5000pp, topo competitivo a partir de ~300pp), então o limiar
+# foi reescalado para o topo competitivo brasileiro.
+MIN_PLAYER_PP = 300.0
 RANK_DECAY = 0.97
 SENSITIVITY = 0.25  # 1% de acc ≈ 0.25★
 CLAMP_STARS = 2.0

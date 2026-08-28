@@ -16,6 +16,7 @@ from app.models import (
     Difficulty,
     Map,
     MapStatus,
+    Player,
     RatingHistory,
     ReweightSuggestion,
     Score,
@@ -39,9 +40,13 @@ def _scale_stars(total_before: float, delta: float, difficulty: Difficulty) -> t
 
 
 async def _difficulty_scores(session: AsyncSession, difficulty_id: int) -> list[dict]:
+    # player_pp usa o PP interno do ranking BSBR (Player.pp_total): o payload
+    # de score do ScoreSaber não traz o pp do player (leaderboardPlayerInfo só
+    # tem id/name/country/avatar), então ss_player_pp fica sempre 0.
     rows = (
         await session.execute(
-            select(Score.acc, Score.score, Score.full_combo, Score.ss_player_pp)
+            select(Score.acc, Score.score, Score.full_combo, Player.pp_total)
+            .join(Player, Score.player_id == Player.id)
             .where(Score.difficulty_id == difficulty_id)
             .order_by(Score.leaderboard_rank.nulls_last())
         )
@@ -51,9 +56,9 @@ async def _difficulty_scores(session: AsyncSession, difficulty_id: int) -> list[
             "acc": acc or 0.0,
             "base_score": score or 0,
             "full_combo": bool(full_combo),
-            "player_pp": ss_pp or 0.0,
+            "player_pp": pp_total or 0.0,
         }
-        for acc, score, full_combo, ss_pp in rows
+        for acc, score, full_combo, pp_total in rows
     ]
 
 
@@ -202,3 +207,116 @@ async def reject_suggestion(
     suggestion.reviewed_by = reviewer
     await session.commit()
     return suggestion
+
+
+async def preview_suggestions(session: AsyncSession) -> dict:
+    """Simulação do reweight em memória — não persiste nada.
+
+    Roda a análise para todas as dificuldades rankeadas, aplica os deltas
+    sugeridos e recalcula o ranking ponderado como ficaria. A curva de PP é
+    linear em stars, então o novo PP de cada score = pp_atual × (novas/atuais).
+    """
+    from app.services.pp_engine import weighted_pp
+
+    difficulties = (
+        (
+            await session.execute(
+                select(Difficulty, Map)
+                .join(Map, Difficulty.map_id == Map.id)
+                .where(Map.status == MapStatus.RANKED)
+                .where(Difficulty.total_stars.is_not(None))
+            )
+        )
+        .all()
+    )
+
+    changes: dict[int, dict] = {}  # difficulty_id -> {old, new, result, map_name, diff_name}
+    for difficulty, map_ in difficulties:
+        scores = await _difficulty_scores(session, difficulty.id)
+        result = analyze_difficulty(scores, float(difficulty.total_stars))
+        if result.confidence == "none":
+            continue
+        changes[difficulty.id] = {
+            "old": float(difficulty.total_stars),
+            "new": result.suggested_stars,
+            "result": result,
+            "map_name": map_.name,
+            "diff_name": difficulty.name,
+        }
+
+    # Novo PP por jogador: agregação ponderada (0.965^n) sobre os scores
+    # escalados pelo fator de cada dificuldade alterada.
+    rows = (
+        (
+            await session.execute(
+                select(Score, Player.id, Player.name, Difficulty.id)
+                .join(Player, Score.player_id == Player.id)
+                .join(Difficulty, Score.difficulty_id == Difficulty.id)
+                .join(Map, Difficulty.map_id == Map.id)
+                .where(Map.status == MapStatus.RANKED)
+            )
+        )
+        .all()
+    )
+    players_before: dict[int, tuple[str, list[float]]] = {}
+    players_after: dict[int, tuple[str, list[float]]] = {}
+    for score, player_id, player_name, difficulty_id in rows:
+        if score.pp is None:
+            continue
+        players_before.setdefault(player_id, (player_name, []))[1].append(float(score.pp))
+        change = changes.get(difficulty_id)
+        if change:
+            factor = change["new"] / change["old"] if change["old"] else 1.0
+            new_pp = float(score.pp) * factor
+        else:
+            new_pp = float(score.pp)
+        players_after.setdefault(player_id, (player_name, []))[1].append(new_pp)
+
+    def _ranking(by_player: dict[int, tuple[str, list[float]]]) -> list[tuple[float, str]]:
+        ranked = []
+        for player_id, (name, pps) in by_player.items():
+            pps.sort(reverse=True)
+            ranked.append((weighted_pp(pps), name))
+        ranked.sort(reverse=True)
+        return ranked
+
+    before = _ranking(players_before)
+    after = _ranking(players_after)
+    before_rank = {name: i + 1 for i, (_, name) in enumerate(before)}
+    after_rank = {name: i + 1 for i, (_, name) in enumerate(after)}
+    before_pp = {name: pp for pp, name in before}
+    after_pp = {name: pp for pp, name in after}
+
+    top_affected = sorted(after, key=lambda t: t[0], reverse=True)[:20]
+    ranking_payload = [
+        {
+            "name": name,
+            "rank_before": before_rank.get(name),
+            "rank_after": after_rank.get(name),
+            "pp_before": round(before_pp.get(name, 0.0), 2),
+            "pp_after": round(after_pp.get(name, 0.0), 2),
+            "delta_pp": round(after_pp.get(name, 0.0) - before_pp.get(name, 0.0), 2),
+        }
+        for _, name in top_affected
+        if before_pp.get(name, 0.0) != after_pp.get(name, 0.0) or before_rank.get(name) != after_rank.get(name)
+    ]
+
+    return {
+        "difficulties": [
+            {
+                "difficulty_id": did,
+                "map_name": ch["map_name"],
+                "difficulty": ch["diff_name"],
+                "current_stars": round(ch["old"], 2),
+                "suggested_stars": round(ch["new"], 2),
+                "delta_stars": round(ch["result"].delta_stars, 2),
+                "confidence": ch["result"].confidence,
+                "sample_size": ch["result"].sample_size,
+                "observed_acc": ch["result"].median_acc,
+                "expected_acc": ch["result"].expected_acc,
+                "auto_appliable": ch["result"].can_auto_apply,
+            }
+            for did, ch in changes.items()
+        ],
+        "ranking": ranking_payload,
+    }
