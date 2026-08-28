@@ -3,11 +3,12 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { SmartImg } from "@/components/smart-img";
 import { getJson } from "@/lib/api";
-import type { MapSummary, MapsResponse } from "@/lib/types";
+import type { MapSummary, MapsResponse, QualificationResponse } from "@/lib/types";
 import { formatInt, formatNumber } from "@/lib/format";
 import { BackendOffline, EmptyState } from "@/components/empty-state";
 import { Pagination } from "@/components/pagination";
 import { SubStats } from "@/components/sub-stats";
+import { PlaylistDownload } from "@/components/playlist-download";
 import { SortSelect } from "./sort-select";
 
 export const metadata: Metadata = {
@@ -16,6 +17,7 @@ export const metadata: Metadata = {
 
 const PAGE_SIZE = 24;
 const SORTS: Record<string, true> = { stars: true, recent: true, name: true };
+const QUALIFICATION_TAB = "qualification";
 
 function parseSort(value: string | undefined): string {
   return value !== undefined && SORTS[value] ? value : "stars";
@@ -147,37 +149,180 @@ function MapCard({ map }: MapCardProps) {
   );
 }
 
+const STATUS_LABEL: Record<string, { label: string; badge: string }> = {
+  candidate: { label: "Sugerido", badge: "border-warning/40 bg-warning/10 text-warning" },
+  qualified: { label: "Qualificado", badge: "border-secondary/40 bg-secondary/10 text-secondary" },
+};
+
+function QualificationList({ data }: { data: QualificationResponse }) {
+  if (data.items.length === 0) {
+    return (
+      <EmptyState
+        title="Nenhum mapa em qualificação"
+        description="Os mapas sugeridos pela comunidade e analisados pelo ML aparecem aqui."
+      />
+    );
+  }
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      {data.items.map((item) => {
+        const status = STATUS_LABEL[item.status] ?? STATUS_LABEL.candidate;
+        const mainDiff = item.difficulties[0];
+        return (
+          <div
+            key={item.id}
+            className="flex flex-col overflow-hidden rounded-xl border border-border-subtle bg-surface shadow-sm"
+          >
+            <div className="relative overflow-hidden">
+              <SmartImg
+                src={item.cover_url}
+                alt={`Capa de ${item.name}`}
+                className="aspect-[16/9] w-full bg-surface-2 object-cover"
+                fallback={
+                  <div className="flex aspect-[16/9] w-full items-center justify-center bg-surface-2 text-muted/40">
+                    <svg
+                      aria-hidden="true"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      className="h-10 w-10"
+                    >
+                      <circle cx="7" cy="17" r="3" />
+                      <circle cx="18" cy="15" r="3" />
+                      <path d="M10 17V6l11-2v11" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </div>
+                }
+              />
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 bg-gradient-to-t from-surface via-surface/10 to-transparent"
+              />
+              <span
+                className={`absolute right-3 top-3 rounded-md border px-2 py-0.5 text-[10px] font-black uppercase tracking-widest backdrop-blur-sm ${status.badge}`}
+              >
+                {status.label}
+              </span>
+            </div>
+            <div className="flex flex-1 flex-col gap-1.5 p-3.5">
+              <h3 className="line-clamp-1 text-[15px] font-bold tracking-tight text-foreground">
+                {item.name}
+              </h3>
+              <p className="truncate text-xs text-muted">
+                {item.mapper ?? "Mapper desconhecido"}
+                {item.bpm != null ? (
+                  <>
+                    <span className="mx-1.5 text-muted/50">·</span>
+                    {formatInt(item.bpm)} BPM
+                  </>
+                ) : null}
+              </p>
+              <div className="mt-auto flex flex-wrap gap-1 pt-1.5">
+                {item.difficulties.slice(0, 3).map((d) => (
+                  <span
+                    key={d.name}
+                    className="rounded-full border border-border-subtle bg-surface-2 px-2 py-0.5 text-[10px] font-semibold text-muted"
+                  >
+                    {d.name}
+                    {d.total_stars != null ? ` · ${formatNumber(d.total_stars)}★` : ""}
+                  </span>
+                ))}
+                {item.difficulties.length > 3 ? (
+                  <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-semibold text-muted">
+                    +{item.difficulties.length - 3}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default async function MapsPage(props: PageProps<"/mapas">) {
   const searchParams = await props.searchParams;
+  const tab = Array.isArray(searchParams.tab) ? searchParams.tab[0] : searchParams.tab;
+  const isQualification = tab === QUALIFICATION_TAB;
   const sort = parseSort(
     Array.isArray(searchParams.sort) ? searchParams.sort[0] : searchParams.sort,
   );
   const page = parsePage(Array.isArray(searchParams.page) ? searchParams.page[0] : searchParams.page);
 
-  let data: MapsResponse;
+  let data: MapsResponse | null = null;
+  let qualification: QualificationResponse | null = null;
+  let offline = false;
   try {
-    data = await getJson<MapsResponse>(`/maps?sort=${sort}&page=${page}&page_size=${PAGE_SIZE}`);
+    if (isQualification) {
+      qualification = await getJson<QualificationResponse>("/maps/qualification");
+    } else {
+      data = await getJson<MapsResponse>(`/maps?sort=${sort}&page=${page}&page_size=${PAGE_SIZE}`);
+    }
   } catch {
-    return <BackendOffline what="os mapas rankeados" />;
+    offline = true;
   }
+
+  const tabs = (
+    <div role="tablist" aria-label="Catálogo de mapas" className="flex w-fit gap-1 rounded-lg border border-border-subtle bg-surface p-1">
+      <Link
+        role="tab"
+        aria-selected={!isQualification}
+        href="/mapas"
+        className={`rounded-md px-4 py-1.5 text-sm font-bold transition-colors ${
+          !isQualification
+            ? "bg-secondary text-white shadow-[0_0_12px_var(--glow-secondary)]"
+            : "text-muted hover:text-foreground"
+        }`}
+      >
+        Rankeados
+      </Link>
+      <Link
+        role="tab"
+        aria-selected={isQualification}
+        href="/mapas?tab=qualification"
+        className={`rounded-md px-4 py-1.5 text-sm font-bold transition-colors ${
+          isQualification
+            ? "bg-secondary text-white shadow-[0_0_12px_var(--glow-secondary)]"
+            : "text-muted hover:text-foreground"
+        }`}
+      >
+        Qualificação
+      </Link>
+    </div>
+  );
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-3xl font-extrabold uppercase tracking-tight">
-            Mapas <span className="text-secondary">rankeados</span>
+            Mapas <span className="text-secondary">{isQualification ? "em qualificação" : "rankeados"}</span>
           </h1>
           <p className="mt-1 text-sm text-muted">
-            {formatInt(data.total)} mapas no catálogo brasileiro
+            {isQualification
+              ? "Sugeridos pela comunidade e analisados pelo ML — aguardando staff"
+              : `${formatInt(data?.total ?? 0)} mapas no catálogo brasileiro`}
           </p>
         </div>
-        <Suspense fallback={null}>
-          <SortSelect value={sort} />
-        </Suspense>
+        <div className="flex flex-wrap items-center gap-3">
+          {!isQualification && data ? <PlaylistDownload total={data.total} /> : null}
+          {!isQualification ? (
+            <Suspense fallback={null}>
+              <SortSelect value={sort} />
+            </Suspense>
+          ) : null}
+        </div>
       </div>
 
-      {data.items.length === 0 ? (
+      {tabs}
+
+      {offline ? (
+        <BackendOffline what={isQualification ? "a fila de qualificação" : "os mapas rankeados"} />
+      ) : isQualification ? (
+        <QualificationList data={qualification!} />
+      ) : data!.items.length === 0 ? (
         <EmptyState
           title={page > 1 ? "Sem mapas nesta página" : "Nenhum mapa rankeado"}
           description={
@@ -189,14 +334,14 @@ export default async function MapsPage(props: PageProps<"/mapas">) {
       ) : (
         <>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {data.items.map((map) => (
+            {data!.items.map((map) => (
               <MapCard key={map.hash} map={map} />
             ))}
           </div>
           <Pagination
-            page={data.page}
-            pageSize={data.page_size}
-            total={data.total}
+            page={data!.page}
+            pageSize={data!.page_size}
+            total={data!.total}
             basePath="/mapas"
             params={{ sort }}
           />

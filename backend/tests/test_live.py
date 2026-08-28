@@ -207,7 +207,7 @@ async def test_persist_ignores_unknown_leaderboard(session):
         leaderboard_id="desconhecido",
         player_id="p1",
         player_name="Player",
-        player_country=None,
+        player_country="BR",
         song_hash=None,
         difficulty=None,
         score=1,
@@ -220,7 +220,89 @@ async def test_persist_ignores_unknown_leaderboard(session):
         time_set=datetime(2026, 8, 28, 3, 0, 0),
     )
     outcome = await persist_live_score(session, live)
-    assert outcome == {"ignored": "unknown_leaderboard"}
+    assert outcome == {"ignored": "not_ranked"}
+    assert (await session.scalars(select(Score))).all() == []
+
+
+async def test_persist_ignores_non_br_player(session):
+    """Jogador fora do Brasil não entra no feed ao vivo (mesmo em mapa rankeado)."""
+    m = Map(hash="r" * 40, name="Ranked", status=MapStatus.RANKED, mapper="M")
+    session.add(m)
+    await session.flush()
+    session.add(
+        Difficulty(
+            map_id=m.id,
+            characteristic="Standard",
+            name="ExpertPlus",
+            ss_leaderboard_id="997",
+            total_stars=6.0,
+        )
+    )
+    await session.commit()
+
+    from app.services.live.messages import LiveScore
+
+    live = LiveScore(
+        source="scoresaber",
+        score_id="1",
+        leaderboard_id="997",
+        player_id="p1",
+        player_name="Gringo",
+        player_country="US",
+        song_hash="r" * 40,
+        difficulty="ExpertPlus",
+        score=1,
+        acc=None,
+        pp=None,
+        mods="",
+        full_combo=False,
+        max_score=None,
+        rank=None,
+        time_set=datetime(2026, 8, 28, 3, 0, 0),
+    )
+    outcome = await persist_live_score(session, live)
+    assert outcome == {"ignored": "not_br"}
+    assert (await session.scalars(select(Score))).all() == []
+
+
+async def test_persist_ignores_candidate_map_with_leaderboard(session):
+    """Candidato/qualificado com ss_leaderboard_id NÃO entra no feed ao vivo."""
+    m = Map(hash="c" * 40, name="Candidato", status=MapStatus.CANDIDATE, mapper="M")
+    session.add(m)
+    await session.flush()
+    session.add(
+        Difficulty(
+            map_id=m.id,
+            characteristic="Standard",
+            name="ExpertPlus",
+            ss_leaderboard_id="998",
+            total_stars=6.0,
+        )
+    )
+    await session.commit()
+
+    from app.services.live.messages import LiveScore
+
+    live = LiveScore(
+        source="scoresaber",
+        score_id="1",
+        leaderboard_id="998",
+        player_id="p1",
+        player_name="Player",
+        player_country="BR",
+        song_hash="c" * 40,
+        difficulty="ExpertPlus",
+        score=1,
+        acc=None,
+        pp=None,
+        mods="",
+        full_combo=False,
+        max_score=None,
+        rank=None,
+        time_set=datetime(2026, 8, 28, 3, 0, 0),
+    )
+    outcome = await persist_live_score(session, live)
+    assert outcome == {"ignored": "not_ranked"}
     assert (await session.scalars(select(Score))).all() == []
 
 

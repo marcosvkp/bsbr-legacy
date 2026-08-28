@@ -44,6 +44,10 @@ async def publish(live: LiveScore) -> None:
         logger.exception("falha ao persistir score ao vivo")
         outcome = {"error": "persist_failed"}
 
+    # Score fora do catálogo ranqueado: não vai para o feed nem para os recents
+    if isinstance(outcome, dict) and outcome.get("ignored"):
+        return
+
     redis = _get_redis()
     if redis is None:
         return

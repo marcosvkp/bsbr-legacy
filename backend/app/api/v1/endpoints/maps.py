@@ -96,6 +96,52 @@ async def list_maps(
     return payload
 
 
+@router.get("/maps/qualification")
+async def list_qualification(db: AsyncSession = Depends(get_db)) -> dict:
+    """Fila pública de qualificação: mapas sugeridos (candidatos) e qualificados."""
+    rows = (
+        (
+            await db.execute(
+                select(Map)
+                .where(Map.status.in_([MapStatus.CANDIDATE, MapStatus.QUALIFIED]))
+                .options(selectinload(Map.difficulties))
+                .order_by(Map.id.desc())
+                .limit(50)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "items": [
+            {
+                "id": m.id,
+                "hash": m.hash,
+                "name": m.name,
+                "mapper": m.mapper,
+                "bpm": m.bpm,
+                "cover_url": m.cover_url,
+                "status": m.status.value,
+                "submitted_by": m.submitted_by,
+                "created_at": m.created_at.isoformat() if m.created_at else None,
+                "difficulties": [
+                    {
+                        "name": d.name,
+                        "total_stars": d.total_stars,
+                        "ss_leaderboard_id": d.ss_leaderboard_id,
+                    }
+                    for d in sorted(
+                        (d for d in m.difficulties if d.characteristic == "Standard"),
+                        key=lambda d: _DIFF_ORDER.get(d.name, -1),
+                        reverse=True,
+                    )
+                ],
+            }
+            for m in rows
+        ],
+    }
+
+
 @router.get("/maps/{map_hash}")
 async def get_map(map_hash: str, db: AsyncSession = Depends(get_db)) -> dict:
     cache_key = f"map:{map_hash}"

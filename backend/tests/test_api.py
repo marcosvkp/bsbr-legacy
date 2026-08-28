@@ -138,11 +138,22 @@ async def test_maps_list_and_detail(client, seeded):
 async def test_playlist_download(client, seeded):
     r = client.get("/api/v1/playlists/ranked.bplist")
     assert r.status_code == 200
-    assert "bsbr_ranked.bplist" in r.headers["content-disposition"]
+    assert "playlist.bplist" in r.headers["content-disposition"]
     data = r.json()
     assert data["playlistTitle"] == "BSBR Ranked Maps"
     assert data["songs"][0]["hash"] == seeded
     assert data["songs"][0]["difficulties"] == [{"characteristic": "Standard", "name": "ExpertPlus"}]
+    assert data["customData"]["syncURL"].endswith("/api/v1/playlists/ranked.bplist")
+
+
+async def test_latest_playlist_download(client, seeded):
+    """Playlist da batch atual (novos) — mesma estrutura, título diferente."""
+    r = client.get("/api/v1/playlists/latest.bplist")
+    assert r.status_code == 200
+    assert "playlist-novos.bplist" in r.headers["content-disposition"]
+    data = r.json()
+    assert data["playlistTitle"] == "BSBR Ranked Maps (Novos)"
+    assert data["customData"]["syncURL"].endswith("/api/v1/playlists/latest.bplist")
 
 
 async def test_admin_requires_token(client):

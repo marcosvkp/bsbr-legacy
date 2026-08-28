@@ -7,15 +7,17 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models import Difficulty, Map, MapStatus
 
 _PLAYLIST_TITLE = "BSBR Ranked Maps"
+_PLAYLIST_TITLE_NEW = "BSBR Ranked Maps (Novos)"
 _PLAYLIST_AUTHOR = "BSBR Team"
 
 # Ordem canônica das dificuldades na playlist
@@ -27,20 +29,32 @@ def _normalize_diff(name: str) -> str:
     return "ExpertPlus" if name == "Expert+" else name
 
 
-async def generate_bsbr_playlist(session: AsyncSession, *, sync_url: str = "") -> dict[str, Any]:
-    """Monta o dict da playlist com os mapas rankeados e suas dificuldades."""
-    rows = (
-        (
-            await session.execute(
-                select(Map)
-                .where(Map.status == MapStatus.RANKED)
-                .options(selectinload(Map.difficulties))
-                .order_by(Map.name)
-            )
-        )
-        .scalars()
-        .all()
+async def generate_bsbr_playlist(
+    session: AsyncSession,
+    *,
+    sync_url: str = "",
+    title: str | None = None,
+    days: int | None = None,
+) -> dict[str, Any]:
+    """Monta o dict da playlist com os mapas rankeados e suas dificuldades.
+
+    ``days`` limita aos mapas com alguma dificuldade rankeada no período
+    (playlist da "batch atual" de novos mapas).
+    """
+    query = (
+        select(Map)
+        .where(Map.status == MapStatus.RANKED)
+        .options(selectinload(Map.difficulties))
+        .order_by(Map.name)
     )
+    if days:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        subq = exists(select(Difficulty.id).where(
+            Difficulty.map_id == Map.id,
+            Difficulty.ranked_at >= cutoff,
+        ))
+        query = query.where(subq)
+    rows = (await session.execute(query)).scalars().all()
 
     songs_by_hash: dict[str, dict[str, Any]] = {}
     for m in rows:
@@ -66,7 +80,7 @@ async def generate_bsbr_playlist(session: AsyncSession, *, sync_url: str = "") -
             )
 
     return {
-        "playlistTitle": _PLAYLIST_TITLE,
+        "playlistTitle": title or (_PLAYLIST_TITLE_NEW if days else _PLAYLIST_TITLE),
         "playlistAuthor": _PLAYLIST_AUTHOR,
         "customData": {"syncURL": sync_url},
         "songs": list(songs_by_hash.values()),
@@ -74,6 +88,12 @@ async def generate_bsbr_playlist(session: AsyncSession, *, sync_url: str = "") -
     }
 
 
-async def render_bsbr_playlist(session: AsyncSession, *, sync_url: str = "") -> str:
-    data = await generate_bsbr_playlist(session, sync_url=sync_url)
+async def render_bsbr_playlist(
+    session: AsyncSession,
+    *,
+    sync_url: str = "",
+    title: str | None = None,
+    days: int | None = None,
+) -> str:
+    data = await generate_bsbr_playlist(session, sync_url=sync_url, title=title, days=days)
     return json.dumps(data, indent=2, ensure_ascii=False)

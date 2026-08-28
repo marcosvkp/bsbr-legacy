@@ -13,7 +13,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Difficulty, Player, Score
+from app.models import Difficulty, Map, MapStatus, Player, Score
 from app.services.pp_engine import decompose_pp
 
 from .messages import LiveScore
@@ -22,14 +22,25 @@ logger = logging.getLogger(__name__)
 
 
 async def persist_live_score(session: AsyncSession, live: LiveScore) -> dict | None:
-    """Upsert de um score ao vivo; None se o mapa não é conhecido/rankeado."""
+    """Upsert de um score ao vivo; None se fora do escopo do feed.
+
+    O feed "Ao Vivo" só aceita jogadas de jogadores BR em dificuldades
+    rankeadas: país do payload deve ser BR e o mapa precisa ter status RANKED
+    (candidatos/qualificados e jogadores de outros países ficam fora).
+    """
+    if (live.player_country or "").upper() != "BR":
+        return {"ignored": "not_br"}
+
     difficulty = (
         await session.scalars(
-            select(Difficulty).where(Difficulty.ss_leaderboard_id == live.leaderboard_id)
+            select(Difficulty)
+            .join(Map, Difficulty.map_id == Map.id)
+            .where(Difficulty.ss_leaderboard_id == live.leaderboard_id)
+            .where(Map.status == MapStatus.RANKED)
         )
     ).first()
     if difficulty is None:
-        return {"ignored": "unknown_leaderboard"}
+        return {"ignored": "not_ranked"}
 
     player = (
         await session.scalars(select(Player).where(Player.ss_id == live.player_id))

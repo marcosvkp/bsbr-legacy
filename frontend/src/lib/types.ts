@@ -165,6 +165,27 @@ export interface MapsResponse {
   items: MapSummary[];
 }
 
+export interface QualificationItem {
+  id: number;
+  hash: string;
+  name: string;
+  mapper: string | null;
+  bpm: number | null;
+  cover_url: string | null;
+  status: "candidate" | "qualified";
+  submitted_by: string | null;
+  created_at: string | null;
+  difficulties: Array<{
+    name: string;
+    total_stars: number | null;
+    ss_leaderboard_id: string | null;
+  }>;
+}
+
+export interface QualificationResponse {
+  items: QualificationItem[];
+}
+
 export interface LeaderboardEntry {
   player_name: string;
   player_ss_id: string | null;

@@ -668,10 +668,10 @@ export default function AdminPage() {
                   {candidates.map((cand) => (
                     <tr key={cand.id} className="border-b border-border-subtle/60 last:border-b-0">
                       <td className="px-4 py-2.5 font-medium">
-                        <div className="flex flex-col gap-0.5">
-                          <span className="truncate">{cand.name}</span>
-                          <span className="text-xs text-muted">{cand.mapper ?? "—"}</span>
-                        </div>
+                        <span className="block max-w-56 truncate">{cand.name}</span>
+                      </td>
+                      <td className="hidden px-4 py-2.5 text-muted sm:table-cell">
+                        {cand.mapper ?? "—"}
                       </td>
                       <td className="px-4 py-2.5">
                         <Badge variant={cand.status === "qualified" ? "secondary" : "warning"}>
