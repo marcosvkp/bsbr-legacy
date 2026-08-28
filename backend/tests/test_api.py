@@ -166,6 +166,31 @@ async def test_admin_requires_token(client):
     )
 
 
+async def test_admin_suggestions_lists_existing(client, seeded):
+    """Sugestões existentes retornam o mapa (eager load do Map — não deve dar 500)."""
+    from app.core.db import SessionLocal
+    from app.models import Difficulty, ReweightSuggestion
+
+    headers = {"X-Admin-Token": "test-token"}
+    async with SessionLocal() as s:
+        d = (await s.scalars(
+            select(Difficulty).where(Difficulty.map_id == 1)
+        )).one()
+        s.add(ReweightSuggestion(
+            difficulty_id=d.id, status="pending",
+            suggested_stars=4.8, delta_stars=-0.2, sample_size=12,
+            observed_acc=0.91, expected_acc=0.905, confidence="low", reason="teste",
+        ))
+        await s.commit()
+
+    r = client.get("/api/v1/admin/reweight/suggestions", headers=headers)
+    assert r.status_code == 200
+    items = r.json()["items"]
+    assert len(items) == 1
+    assert items[0]["map_name"] == "Musica"
+    assert items[0]["difficulty"] == "ExpertPlus"
+
+
 async def test_admin_flow_with_token(client, seeded):
     headers = {"X-Admin-Token": "test-token"}
     empty = client.get("/api/v1/admin/reweight/suggestions", headers=headers).json()

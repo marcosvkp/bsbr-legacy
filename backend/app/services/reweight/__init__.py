@@ -1,4 +1,5 @@
 from app.services.reweight.algorithm import (
+    AUTO_APPLY_MAX,
     ReweightResult,
     analyze_difficulty,
     expected_median_acc,
@@ -6,6 +7,7 @@ from app.services.reweight.algorithm import (
 )
 
 __all__ = [
+    "AUTO_APPLY_MAX",
     "ReweightResult",
     "analyze_difficulty",
     "expected_median_acc",

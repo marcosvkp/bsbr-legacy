@@ -9,6 +9,7 @@ from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from app.core.cache import cache
 from app.core.config import get_settings
@@ -199,6 +200,7 @@ async def list_suggestions(
             await db.execute(
                 select(ReweightSuggestion, Difficulty)
                 .join(Difficulty, ReweightSuggestion.difficulty_id == Difficulty.id)
+                .options(joinedload(Difficulty.map))
                 .where(ReweightSuggestion.status == status)
                 .order_by(ReweightSuggestion.created_at.desc())
                 .limit(200)

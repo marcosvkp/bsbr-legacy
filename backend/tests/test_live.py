@@ -196,6 +196,12 @@ async def test_persist_live_score_inserts_and_updates(session):
     assert scores[0].score == 950000
     # pp calculado pela curva (acc share da dificuldade)
     assert scores[0].pp is not None and scores[0].pp > 0
+    # enriquecimento do feed: hash/nome/capa do catálogo + avatar do jogador
+    assert outcome["map_hash"] == "h" * 40
+    assert outcome["map_name"] == "Mapa"
+    assert outcome["cover_url"] is None
+    assert outcome["avatar_url"] is None
+    assert outcome["difficulty_name"] == "ExpertPlus"
 
 
 async def test_persist_ignores_unknown_leaderboard(session):

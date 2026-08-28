@@ -111,6 +111,13 @@ async def persist_live_score(session: AsyncSession, live: LiveScore) -> dict | N
     result = {"inserted" if is_new else "updated": existing.id}
     result["pp"] = existing.pp
     result["acc"] = existing.acc
+    # Enriquecimento para o feed: hash/nome/capa do catálogo (o song_hash do
+    # payload do ScoreSaber pode não bater com Map.hash) e avatar do jogador.
+    result["map_hash"] = difficulty.map.hash
+    result["map_name"] = difficulty.map.name
+    result["cover_url"] = difficulty.map.cover_url
+    result["avatar_url"] = player.avatar_url
+    result["difficulty_name"] = difficulty.name
     return result
 
 

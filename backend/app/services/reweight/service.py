@@ -9,8 +9,11 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from app.models import (
     Difficulty,
@@ -22,9 +25,82 @@ from app.models import (
     Score,
     SuggestionStatus,
 )
-from app.services.reweight import ReweightResult, analyze_difficulty
+from app.services.reweight import (
+    AUTO_APPLY_MAX,
+    ReweightResult,
+    analyze_difficulty,
+)
 
 _SYSTEM_REVIEWER = "system"
+
+# Cache da predição do ML por mapa (evita re-baixar o beatmap no processo).
+_ML_CACHE: dict[str, dict[str, float]] = {}
+
+
+async def _ml_stars_by_difficulty(map_source: str | None) -> dict[str, float] | None:
+    """Predição do ML (bsbr_analyzer) das stars por dificuldade do beatmap."""
+    if not map_source:
+        return None
+    if map_source in _ML_CACHE:
+        return _ML_CACHE[map_source]
+    try:
+        from bsbr_analyzer import analyze_map  # import tardio: pacote pesado
+
+        analysis = await asyncio.to_thread(analyze_map, map_source)
+        result = {
+            d.difficulty: float(d.total_stars)
+            for d in analysis.difficulties
+            if d.total_stars and d.characteristic == "Standard"
+        }
+    except Exception:
+        result = {}
+    _ML_CACHE[map_source] = result
+    return result or None
+
+
+async def analyze_difficulty_with_ml(
+    difficulty: Difficulty,
+    map_: Map,
+    scores: list[dict],
+) -> ReweightResult:
+    """Análise de reweight combinando o ML (stars do beatmap) com a performance.
+
+    O ML re-prediz as stars do mapa pelas features do beatmap (``delta_ml``);
+    a performance observada (acc mediana vs esperada) dá ``delta_perf``. O
+    delta final é a média dos dois — "o ML acha que o mapa vale X★" aliado a
+    "os scores estão rendendo acima/abaixo do esperado".
+    """
+    base = analyze_difficulty(scores, float(difficulty.total_stars))
+    if base.confidence == "none":
+        return base
+
+    ml = await _ml_stars_by_difficulty(map_.beatsaver_id or map_.hash)
+    if not ml or difficulty.name not in ml:
+        return base
+
+    ml_stars = ml[difficulty.name]
+    delta_ml = round(ml_stars - float(difficulty.total_stars), 2)
+    delta_final = round(0.5 * delta_ml + 0.5 * base.delta_stars, 2)
+    suggested = round(max(0.1, float(difficulty.total_stars) + delta_final), 2)
+    reason = (
+        f"ML {ml_stars:.2f}★ (Δ{delta_ml:+.2f}) + perf "
+        f"{base.median_acc * 100:.1f}% vs {base.expected_acc * 100:.1f}% esperado "
+        f"(n={base.sample_size}) → {delta_final:+.2f}★"
+    )
+
+    return ReweightResult(
+        sample_size=base.sample_size,
+        weighted_acc=base.weighted_acc,
+        median_acc=base.median_acc,
+        fc_rate=base.fc_rate,
+        expected_acc=base.expected_acc,
+        delta_stars=delta_final,
+        suggested_stars=suggested,
+        confidence=base.confidence,
+        direction="increase" if delta_final > 0.05 else ("decrease" if delta_final < -0.05 else "keep"),
+        reason=reason,
+        can_auto_apply=(base.confidence == "high" and abs(delta_final) <= AUTO_APPLY_MAX),
+    )
 
 
 def _scale_stars(total_before: float, delta: float, difficulty: Difficulty) -> tuple[float, float, float, float]:
@@ -134,6 +210,7 @@ async def collect_suggestions(
             await session.execute(
                 select(Difficulty)
                 .join(Map, Difficulty.map_id == Map.id)
+                .options(joinedload(Difficulty.map))
                 .where(Map.status == MapStatus.RANKED)
                 .where(Difficulty.total_stars.is_not(None))
             )
@@ -145,7 +222,7 @@ async def collect_suggestions(
     stats = {"evaluated": 0, "pending": 0, "auto_applied": 0}
     for difficulty in difficulties:
         scores = await _difficulty_scores(session, difficulty.id)
-        result = analyze_difficulty(scores, float(difficulty.total_stars))
+        result = await analyze_difficulty_with_ml(difficulty, difficulty.map, scores)
         if result.confidence == "none":
             continue
         stats["evaluated"] += 1
@@ -221,26 +298,28 @@ async def preview_suggestions(session: AsyncSession) -> dict:
     difficulties = (
         (
             await session.execute(
-                select(Difficulty, Map)
+                select(Difficulty)
                 .join(Map, Difficulty.map_id == Map.id)
+                .options(joinedload(Difficulty.map))
                 .where(Map.status == MapStatus.RANKED)
                 .where(Difficulty.total_stars.is_not(None))
             )
         )
+        .scalars()
         .all()
     )
 
     changes: dict[int, dict] = {}  # difficulty_id -> {old, new, result, map_name, diff_name}
-    for difficulty, map_ in difficulties:
+    for difficulty in difficulties:
         scores = await _difficulty_scores(session, difficulty.id)
-        result = analyze_difficulty(scores, float(difficulty.total_stars))
+        result = await analyze_difficulty_with_ml(difficulty, difficulty.map, scores)
         if result.confidence == "none":
             continue
         changes[difficulty.id] = {
             "old": float(difficulty.total_stars),
             "new": result.suggested_stars,
             "result": result,
-            "map_name": map_.name,
+            "map_name": difficulty.map.name,
             "diff_name": difficulty.name,
         }
 

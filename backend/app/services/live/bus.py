@@ -58,6 +58,14 @@ async def publish(live: LiveScore) -> None:
 
     payload = live.to_dict()
     payload["outcome"] = outcome
+    # Campos enriquecidos do catálogo (map_hash/cover/avatar) para a UI
+    payload.update(
+        {
+            k: v
+            for k, v in outcome.items()
+            if k in ("map_hash", "map_name", "cover_url", "avatar_url", "difficulty_name")
+        }
+    )
     import orjson
 
     member = orjson.dumps(payload).decode()

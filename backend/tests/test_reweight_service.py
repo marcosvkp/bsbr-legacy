@@ -15,6 +15,18 @@ from app.services.reweight.service import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _no_ml_network(monkeypatch):
+    """Os testes não devem baixar beatmaps do BeatSaver (rede lenta/frágil):
+    o ML fica indisponível e a análise cai para a performance (fallback)."""
+    import app.services.reweight.service as service
+
+    async def _no_ml(map_source):
+        return None
+
+    monkeypatch.setattr(service, "_ml_stars_by_difficulty", _no_ml)
+
+
 @pytest.fixture
 async def session(tmp_path):
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path}/test.db")
@@ -182,3 +194,34 @@ async def test_preview_suggestions_reports_impact_without_persisting(session):
     assert (await session.scalars(select(ReweightSuggestion))).all() == []
     await session.refresh(d)
     assert d.total_stars == 5.0
+
+
+async def test_analyze_with_ml_combines_ml_and_performance(session, monkeypatch):
+    """O delta final é a média da predição do ML e da performance observada."""
+    import app.services.reweight.service as service
+
+    async def _fake_ml(map_source):
+        # o ML "acha" que a dificuldade vale 6.0★ (mapa está com 5.0★)
+        return {"ExpertPlus": 6.0}
+
+    monkeypatch.setattr(service, "_ml_stars_by_difficulty", _fake_ml)
+
+    # 5★ com acc 91% (esperado 90.5%) → delta_perf ≈ -0.13★
+    d = await make_difficulty(session, total=5.0, acc=2.5, tech=1.5, speed=1.0)
+    await seed_scores(session, d.id, [0.91] * 60)
+    from app.models import Map as MapModel
+    from app.models import Score
+
+    for s in (await session.scalars(select(Score))).all():
+        s.pp = 100.0
+    await session.commit()
+    m = (await session.scalars(select(MapModel))).one()
+
+    scores = await service._difficulty_scores(session, d.id)
+    result = await service.analyze_difficulty_with_ml(d, m, scores)
+    # delta_ml = +1.0 (ML 6.0 - atual 5.0) e delta_perf ≈ -0.13 → média ≈ +0.43
+    assert result.confidence == "medium"  # n=60
+    assert 0.3 < result.delta_stars < 0.6
+    assert 5.3 < result.suggested_stars < 5.6
+    assert "ML 6.00\u2605" in result.reason
+    assert result.direction == "increase"

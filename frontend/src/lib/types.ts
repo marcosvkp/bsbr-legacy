@@ -342,6 +342,12 @@ export interface LiveScoreItem {
   max_score: number | null;
   rank: number | null;
   time_set: string;
+  // Enriquecidos pela persistência (catálogo do BSBR)
+  map_hash?: string | null;
+  map_name?: string | null;
+  cover_url?: string | null;
+  avatar_url?: string | null;
+  difficulty_name?: string | null;
   outcome?: Record<string, unknown> | null;
 }
 

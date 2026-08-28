@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { PlayerAvatar } from "@/components/player-avatar";
+import { SmartImg } from "@/components/smart-img";
 import type { LiveScoreItem } from "@/lib/types";
 
 const WS_PATH = "/api/v1/ws/live";
@@ -93,22 +96,42 @@ export function LiveFeed({ initial }: { initial: LiveScoreItem[] }) {
             <tbody>
               {items.map((item) => (
                 <tr key={liveKey(item)} className="border-b border-border-subtle/60 last:border-b-0">
-                  <td className="px-4 py-2.5 font-medium">
-                    {item.player_name ?? item.player_id}
+                  <td className="px-4 py-2.5">
+                    <Link
+                      href={`/jogadores/${item.player_id}`}
+                      className="group flex items-center gap-2.5"
+                    >
+                      <PlayerAvatar
+                        name={item.player_name ?? item.player_id}
+                        avatarUrl={item.avatar_url ?? null}
+                        size={28}
+                      />
+                      <span className="font-medium transition-colors group-hover:text-secondary">
+                        {item.player_name ?? item.player_id}
+                      </span>
+                    </Link>
                     {item.full_combo ? (
                       <span className="ml-2 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-bold text-emerald-600">
                         FC
                       </span>
                     ) : null}
                   </td>
-                  <td className="px-4 py-2.5 text-muted">
-                    {item.song_hash ? (
-                      <a
-                        href={`/mapas/${item.song_hash}`}
-                        className="truncate font-mono text-xs hover:text-secondary"
+                  <td className="px-4 py-2.5">
+                    {item.map_hash ? (
+                      <Link
+                        href={`/mapas/${item.map_hash}`}
+                        className="group flex items-center gap-2.5"
                       >
-                        {item.song_hash.slice(0, 8)}
-                      </a>
+                        <SmartImg
+                          src={item.cover_url ?? null}
+                          alt=""
+                          className="h-8 w-12 shrink-0 rounded bg-surface-2 object-cover"
+                          fallback={<span className="h-8 w-12 shrink-0 rounded bg-surface-2" />}
+                        />
+                        <span className="max-w-44 truncate font-medium transition-colors group-hover:text-secondary">
+                          {item.map_name ?? item.map_hash.slice(0, 8)}
+                        </span>
+                      </Link>
                     ) : (
                       <span className="text-xs text-muted/60">lb {item.leaderboard_id}</span>
                     )}
