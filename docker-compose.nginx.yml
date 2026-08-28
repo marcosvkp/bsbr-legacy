@@ -1,0 +1,37 @@
+# Override de produção: container nginx para o domínio bsbr.pro.
+# Uso (na VPS): docker compose -f docker-compose.yml -f docker-compose.nginx.yml up -d --build
+# O deploy roda no grupo docker (sem sudo) — mesmo padrão do SliceWeb.
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: bsbr_pro_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/bsbr.pro.conf:/etc/nginx/conf.d/bsbr.pro.conf:ro
+      - ./certbot/webroot:/var/www/certbot:ro
+      - ./certbot/etc:/etc/letsencrypt:ro
+    depends_on:
+      - web
+      - api
+
+  # Renovação automática do certificado (a cada 12h) + reload do nginx.
+  # Usa o docker socket para recarregar o nginx após renovar (deploy não tem sudo).
+  certbot-renew:
+    image: certbot/certbot
+    container_name: bsbr_pro_certbot
+    restart: unless-stopped
+    entrypoint: /bin/sh
+    command: >
+      -c 'apk add --no-cache docker-cli >/dev/null 2>&1 || true;
+      trap exit TERM; while :; do
+      certbot renew --webroot -w /var/www/certbot --quiet;
+      docker exec bsbr_pro_nginx nginx -s reload >/dev/null 2>&1 || true;
+      sleep 12h & wait $${!};
+      done'
+    volumes:
+      - ./certbot/etc:/etc/letsencrypt
+      - ./certbot/webroot:/var/www/certbot
+      - /var/run/docker.sock:/var/run/docker.sock

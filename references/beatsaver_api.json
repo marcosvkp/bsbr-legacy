@@ -1,0 +1,2367 @@
+{
+  "swagger" : "2.0",
+  "info" : {
+    "description" : "WIP\n\nIf you want to keep any kind of mirror instead of making 100s of requests instead consider subscribing to the websocket api.\nwss://ws.beatsaver.com/maps\n\nMessages will be in the style {\"type\": \"MAP_UPDATE\", \"msg\": __MAP_DATA_HERE__}",
+    "version" : "0.1",
+    "title" : "BeatSaver API",
+    "contact" : {
+      "name" : "Top_Cat"
+    }
+  },
+  "paths" : {
+    "/maps/id/{id}" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "description" : "MapDetail",
+            "schema" : {
+              "$ref" : "#/definitions/MapDetail"
+            },
+            "produces" : [ "application/json" ]
+          },
+          "404" : {
+            "description" : "Not Found",
+            "produces" : [ "application/json" ]
+          }
+        },
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "description" : "id",
+          "required" : true,
+          "type" : "string"
+        } ],
+        "tags" : [ {
+          "name" : "Maps"
+        } ],
+        "summary" : "Get map information",
+        "consumes" : [ ]
+      }
+    },
+    "/maps/ids/{ids}" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "description" : "MapDetail",
+            "schema" : {
+              "$ref" : "#/definitions/MapDetail"
+            },
+            "produces" : [ "application/json" ]
+          },
+          "404" : {
+            "description" : "Not Found",
+            "produces" : [ "application/json" ]
+          }
+        },
+        "parameters" : [ {
+          "name" : "ids",
+          "in" : "path",
+          "description" : "Up to 50 ids seperated by commas",
+          "required" : true,
+          "type" : "string"
+        } ],
+        "tags" : [ {
+          "name" : "Maps"
+        } ],
+        "summary" : "Get maps for mapIds",
+        "consumes" : [ ]
+      }
+    },
+    "/maps/hash/{hash}" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "description" : "MapDetail",
+            "schema" : {
+              "$ref" : "#/definitions/MapDetail"
+            },
+            "produces" : [ "application/json" ]
+          },
+          "404" : {
+            "description" : "Not Found",
+            "produces" : [ "application/json" ]
+          }
+        },
+        "parameters" : [ {
+          "name" : "hash",
+          "in" : "path",
+          "description" : "Up to 50 hashes seperated by commas",
+          "required" : true,
+          "type" : "string"
+        } ],
+        "tags" : [ {
+          "name" : "Maps"
+        } ],
+        "summary" : "Get map(s) for a map hash",
+        "consumes" : [ ]
+      }
+    },
+    "/maps/uploader/{id}/{page}" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "description" : "SearchResponse",
+            "schema" : {
+              "$ref" : "#/definitions/SearchResponse"
+            },
+            "produces" : [ "application/json" ]
+          }
+        },
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "description" : "id",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int32"
+        }, {
+          "name" : "page",
+          "in" : "path",
+          "description" : "page",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int64",
+          "default" : "0"
+        } ],
+        "tags" : [ {
+          "name" : "Maps"
+        } ],
+        "summary" : "Get maps by a user",
+        "consumes" : [ ]
+      }
+    },
+    "/maps/collaborations/{id}" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "description" : "SearchResponse",
+            "schema" : {
+              "$ref" : "#/definitions/SearchResponse"
+            },
+            "produces" : [ "application/json" ]
+          }
+        },
+        "parameters" : [ {
+          "name" : "before",
+          "in" : "query",
+          "description" : "before",
+          "required" : false,
+          "type" : "string",
+          "format" : "date-time"
+        }, {
+          "name" : "id",
+          "in" : "path",
+          "description" : "id",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int32"
+        }, {
+          "name" : "pageSize",
+          "in" : "query",
+          "description" : "1 - 100",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int32",
+          "default" : "20"
+        } ],
+        "tags" : [ {
+          "name" : "Maps"
+        } ],
+        "summary" : "Get maps by a user, including collaborations",
+        "consumes" : [ ]
+      }
+    },
+    "/maps/latest" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "description" : "SearchResponse",
+            "schema" : {
+              "$ref" : "#/definitions/SearchResponse"
+            },
+            "produces" : [ "application/json" ]
+          }
+        },
+        "parameters" : [ {
+          "name" : "after",
+          "in" : "query",
+          "description" : "Like `before` but will get you maps more recent than the time supplied.\nYYYY-MM-DDTHH:MM:SS+00:00",
+          "required" : false,
+          "type" : "string",
+          "format" : "date-time"
+        }, {
+          "name" : "automapper",
+          "in" : "query",
+          "description" : "true = both, false = no ai",
+          "required" : false,
+          "type" : "boolean"
+        }, {
+          "name" : "before",
+          "in" : "query",
+          "description" : "You probably want this. Supplying the uploaded time of the last map in the previous page will get you another page.\nYYYY-MM-DDTHH:MM:SS+00:00",
+          "required" : false,
+          "type" : "string",
+          "format" : "date-time"
+        }, {
+          "name" : "pageSize",
+          "in" : "query",
+          "description" : "1 - 100",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int32",
+          "default" : "20"
+        }, {
+          "name" : "sort",
+          "in" : "query",
+          "description" : "sort",
+          "required" : false,
+          "type" : "string",
+          "enum" : [ "FIRST_PUBLISHED", "UPDATED", "LAST_PUBLISHED", "CREATED", "CURATED" ]
+        } ],
+        "tags" : [ {
+          "name" : "Maps"
+        } ],
+        "summary" : "Get maps ordered by upload/publish/updated. If you're going to scrape the data and make 100s of requests make this this endpoint you use.",
+        "consumes" : [ ]
+      }
+    },
+    "/maps/deleted" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "description" : "DeletedResponse",
+            "schema" : {
+              "$ref" : "#/definitions/DeletedResponse"
+            },
+            "produces" : [ "application/json" ]
+          }
+        },
+        "parameters" : [ {
+          "name" : "after",
+          "in" : "query",
+          "description" : "Like `before` but will get you maps deleted more recently than the time supplied.\nYYYY-MM-DDTHH:MM:SS+00:00",
+          "required" : false,
+          "type" : "string",
+          "format" : "date-time"
+        }, {
+          "name" : "before",
+          "in" : "query",
+          "description" : "You probably want this. Supplying the deleted time of the last map in the previous page will get you another page.\nYYYY-MM-DDTHH:MM:SS+00:00",
+          "required" : false,
+          "type" : "string",
+          "format" : "date-time"
+        }, {
+          "name" : "pageSize",
+          "in" : "query",
+          "description" : "1 - 100",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int32",
+          "default" : "20"
+        } ],
+        "tags" : [ {
+          "name" : "Maps"
+        } ],
+        "summary" : "Get deleted maps since or before a certain date.",
+        "consumes" : [ ]
+      }
+    },
+    "/maps/plays/{page}" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "description" : "SearchResponse",
+            "schema" : {
+              "$ref" : "#/definitions/SearchResponse"
+            },
+            "produces" : [ "application/json" ]
+          }
+        },
+        "parameters" : [ {
+          "name" : "page",
+          "in" : "path",
+          "description" : "page",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int32",
+          "default" : "0"
+        } ],
+        "tags" : [ {
+          "name" : "Maps"
+        } ],
+        "summary" : "Get maps ordered by play count (Not currently tracked)",
+        "consumes" : [ ]
+      }
+    },
+    "/users/id/{id}" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "description" : "UserDetail",
+            "schema" : {
+              "$ref" : "#/definitions/UserDetail"
+            },
+            "produces" : [ "application/json" ]
+          },
+          "404" : {
+            "description" : "Not Found",
+            "produces" : [ "application/json" ]
+          }
+        },
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "description" : "id",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int32"
+        } ],
+        "tags" : [ {
+          "name" : "Users"
+        } ],
+        "summary" : "Get user info",
+        "consumes" : [ ]
+      }
+    },
+    "/users/ids/{ids}" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "description" : "UserDetail",
+            "schema" : {
+              "$ref" : "#/definitions/UserDetail"
+            },
+            "produces" : [ "application/json" ]
+          },
+          "404" : {
+            "description" : "Not Found",
+            "produces" : [ "application/json" ]
+          }
+        },
+        "parameters" : [ {
+          "name" : "ids",
+          "in" : "path",
+          "description" : "ids",
+          "required" : true,
+          "type" : "string"
+        } ],
+        "tags" : [ {
+          "name" : "Users"
+        } ],
+        "summary" : "Get user info",
+        "consumes" : [ ]
+      }
+    },
+    "/users/name/{name}" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "description" : "UserDetail",
+            "schema" : {
+              "$ref" : "#/definitions/UserDetail"
+            },
+            "produces" : [ "application/json" ]
+          },
+          "404" : {
+            "description" : "Not Found",
+            "produces" : [ "application/json" ]
+          }
+        },
+        "parameters" : [ {
+          "name" : "name",
+          "in" : "path",
+          "description" : "name",
+          "required" : true,
+          "type" : "string"
+        } ],
+        "tags" : [ {
+          "name" : "Users"
+        } ],
+        "summary" : "Get user info by name",
+        "consumes" : [ ]
+      }
+    },
+    "/search/{page}" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "description" : "UserSearchResponse",
+            "schema" : {
+              "$ref" : "#/definitions/UserSearchResponse"
+            },
+            "produces" : [ "application/json" ]
+          }
+        },
+        "parameters" : [ {
+          "name" : "curator",
+          "in" : "query",
+          "description" : "curator",
+          "required" : false,
+          "type" : "boolean"
+        }, {
+          "name" : "firstUploadAfter",
+          "in" : "query",
+          "description" : "firstUploadAfter",
+          "required" : false,
+          "type" : "string",
+          "format" : "date-time"
+        }, {
+          "name" : "firstUploadBefore",
+          "in" : "query",
+          "description" : "firstUploadBefore",
+          "required" : false,
+          "type" : "string",
+          "format" : "date-time"
+        }, {
+          "name" : "lastUploadAfter",
+          "in" : "query",
+          "description" : "lastUploadAfter",
+          "required" : false,
+          "type" : "string",
+          "format" : "date-time"
+        }, {
+          "name" : "lastUploadBefore",
+          "in" : "query",
+          "description" : "lastUploadBefore",
+          "required" : false,
+          "type" : "string",
+          "format" : "date-time"
+        }, {
+          "name" : "maxDownvotes",
+          "in" : "query",
+          "description" : "maxDownvotes",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int32"
+        }, {
+          "name" : "maxMaps",
+          "in" : "query",
+          "description" : "maxMaps",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int32"
+        }, {
+          "name" : "maxRankedMaps",
+          "in" : "query",
+          "description" : "maxRankedMaps",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int32"
+        }, {
+          "name" : "maxUpvotes",
+          "in" : "query",
+          "description" : "maxUpvotes",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int32"
+        }, {
+          "name" : "minDownvotes",
+          "in" : "query",
+          "description" : "minDownvotes",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int32"
+        }, {
+          "name" : "minMaps",
+          "in" : "query",
+          "description" : "minMaps",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int32"
+        }, {
+          "name" : "minRankedMaps",
+          "in" : "query",
+          "description" : "minRankedMaps",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int32"
+        }, {
+          "name" : "minUpvotes",
+          "in" : "query",
+          "description" : "minUpvotes",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int32"
+        }, {
+          "name" : "order",
+          "in" : "query",
+          "description" : "order",
+          "required" : false,
+          "type" : "string",
+          "enum" : [ "DESC", "ASC" ]
+        }, {
+          "name" : "page",
+          "in" : "path",
+          "description" : "page",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int64",
+          "default" : "0"
+        }, {
+          "name" : "pageSize",
+          "in" : "query",
+          "description" : "1 - 100",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int32",
+          "default" : "20"
+        }, {
+          "name" : "q",
+          "in" : "query",
+          "description" : "q",
+          "required" : false,
+          "type" : "string"
+        }, {
+          "name" : "sort",
+          "in" : "query",
+          "description" : "sort",
+          "required" : false,
+          "type" : "string",
+          "enum" : [ "RELEVANCE", "BPM", "DURATION", "UPVOTES", "DOWNVOTES", "RATIO", "MAPS", "RANKED_MAPS", "FIRST_UPLOAD", "LAST_UPLOAD", "MAP_AGE", "PLAYLISTS" ]
+        }, {
+          "name" : "verified",
+          "in" : "query",
+          "description" : "verified",
+          "required" : false,
+          "type" : "boolean"
+        } ],
+        "tags" : [ {
+          "name" : "Users"
+        } ],
+        "summary" : "Search for users",
+        "consumes" : [ ]
+      }
+    },
+    "/search/text/{page}" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "description" : "SearchResponse",
+            "schema" : {
+              "$ref" : "#/definitions/SearchResponse"
+            },
+            "produces" : [ "application/json" ]
+          }
+        },
+        "parameters" : [ {
+          "name" : "ascending",
+          "in" : "query",
+          "description" : "ascending",
+          "required" : false,
+          "type" : "boolean"
+        }, {
+          "name" : "automapper",
+          "in" : "query",
+          "description" : "Options are a little weird, I may add another enum field in future to make this clearer.\ntrue = both, false = only ai, null = no ai",
+          "required" : false,
+          "type" : "boolean"
+        }, {
+          "name" : "characteristics",
+          "in" : "query",
+          "description" : "Comma seperated list of characteristics",
+          "required" : false,
+          "type" : "string"
+        }, {
+          "name" : "chroma",
+          "in" : "query",
+          "description" : "chroma",
+          "required" : false,
+          "type" : "boolean"
+        }, {
+          "name" : "cinema",
+          "in" : "query",
+          "description" : "cinema",
+          "required" : false,
+          "type" : "boolean"
+        }, {
+          "name" : "collaborator",
+          "in" : "query",
+          "description" : "Comma seperated list of collaborators",
+          "required" : false,
+          "type" : "string"
+        }, {
+          "name" : "curated",
+          "in" : "query",
+          "description" : "curated",
+          "required" : false,
+          "type" : "boolean"
+        }, {
+          "name" : "environments",
+          "in" : "query",
+          "description" : "Comma seperated list of environments",
+          "required" : false,
+          "type" : "string"
+        }, {
+          "name" : "followed",
+          "in" : "query",
+          "description" : "followed",
+          "required" : false,
+          "type" : "boolean"
+        }, {
+          "name" : "from",
+          "in" : "query",
+          "description" : "from",
+          "required" : false,
+          "type" : "string",
+          "format" : "date-time"
+        }, {
+          "name" : "fullSpread",
+          "in" : "query",
+          "description" : "fullSpread",
+          "required" : false,
+          "type" : "boolean"
+        }, {
+          "name" : "leaderboard",
+          "in" : "query",
+          "description" : "leaderboard",
+          "required" : false,
+          "type" : "string",
+          "enum" : [ "All", "Ranked", "BeatLeader", "ScoreSaber" ]
+        }, {
+          "name" : "maxBlStars",
+          "in" : "query",
+          "description" : "Float",
+          "required" : false,
+          "schema" : {
+            "$ref" : "#/definitions/Float"
+          }
+        }, {
+          "name" : "maxBpm",
+          "in" : "query",
+          "description" : "Float",
+          "required" : false,
+          "schema" : {
+            "$ref" : "#/definitions/Float"
+          }
+        }, {
+          "name" : "maxDownVotes",
+          "in" : "query",
+          "description" : "maxDownVotes",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int32"
+        }, {
+          "name" : "maxDuration",
+          "in" : "query",
+          "description" : "maxDuration",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int32"
+        }, {
+          "name" : "maxNps",
+          "in" : "query",
+          "description" : "Float",
+          "required" : false,
+          "schema" : {
+            "$ref" : "#/definitions/Float"
+          }
+        }, {
+          "name" : "maxRating",
+          "in" : "query",
+          "description" : "Float",
+          "required" : false,
+          "schema" : {
+            "$ref" : "#/definitions/Float"
+          }
+        }, {
+          "name" : "maxSsStars",
+          "in" : "query",
+          "description" : "Float",
+          "required" : false,
+          "schema" : {
+            "$ref" : "#/definitions/Float"
+          }
+        }, {
+          "name" : "maxUpVotes",
+          "in" : "query",
+          "description" : "maxUpVotes",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int32"
+        }, {
+          "name" : "maxVotes",
+          "in" : "query",
+          "description" : "maxVotes",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int32"
+        }, {
+          "name" : "me",
+          "in" : "query",
+          "description" : "me",
+          "required" : false,
+          "type" : "boolean"
+        }, {
+          "name" : "minBlStars",
+          "in" : "query",
+          "description" : "Float",
+          "required" : false,
+          "schema" : {
+            "$ref" : "#/definitions/Float"
+          }
+        }, {
+          "name" : "minBpm",
+          "in" : "query",
+          "description" : "Float",
+          "required" : false,
+          "schema" : {
+            "$ref" : "#/definitions/Float"
+          }
+        }, {
+          "name" : "minDownVotes",
+          "in" : "query",
+          "description" : "minDownVotes",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int32"
+        }, {
+          "name" : "minDuration",
+          "in" : "query",
+          "description" : "minDuration",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int32"
+        }, {
+          "name" : "minNps",
+          "in" : "query",
+          "description" : "Float",
+          "required" : false,
+          "schema" : {
+            "$ref" : "#/definitions/Float"
+          }
+        }, {
+          "name" : "minRating",
+          "in" : "query",
+          "description" : "Float",
+          "required" : false,
+          "schema" : {
+            "$ref" : "#/definitions/Float"
+          }
+        }, {
+          "name" : "minSsStars",
+          "in" : "query",
+          "description" : "Float",
+          "required" : false,
+          "schema" : {
+            "$ref" : "#/definitions/Float"
+          }
+        }, {
+          "name" : "minUpVotes",
+          "in" : "query",
+          "description" : "minUpVotes",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int32"
+        }, {
+          "name" : "minVotes",
+          "in" : "query",
+          "description" : "minVotes",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int32"
+        }, {
+          "name" : "noodle",
+          "in" : "query",
+          "description" : "noodle",
+          "required" : false,
+          "type" : "boolean"
+        }, {
+          "name" : "order",
+          "in" : "query",
+          "description" : "order",
+          "required" : false,
+          "type" : "string",
+          "enum" : [ "Latest", "Relevance", "Rating", "Curated", "Random", "Duration" ]
+        }, {
+          "name" : "page",
+          "in" : "path",
+          "description" : "page",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int64",
+          "default" : "0"
+        }, {
+          "name" : "pageSize",
+          "in" : "query",
+          "description" : "pageSize",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int32",
+          "default" : "20"
+        }, {
+          "name" : "q",
+          "in" : "query",
+          "description" : "q",
+          "required" : true,
+          "type" : "string"
+        }, {
+          "name" : "tags",
+          "in" : "query",
+          "description" : "Tag query, separated by `,` (and) or `|` (or). Excluded tags are prefixed with `!`.",
+          "required" : false,
+          "type" : "string"
+        }, {
+          "name" : "to",
+          "in" : "query",
+          "description" : "to",
+          "required" : false,
+          "type" : "string",
+          "format" : "date-time"
+        }, {
+          "name" : "verified",
+          "in" : "query",
+          "description" : "verified",
+          "required" : false,
+          "type" : "boolean"
+        }, {
+          "name" : "vivify",
+          "in" : "query",
+          "description" : "vivify",
+          "required" : false,
+          "type" : "boolean"
+        } ],
+        "tags" : [ {
+          "name" : "Search"
+        } ],
+        "summary" : "Search for maps with solr",
+        "consumes" : [ ]
+      }
+    },
+    "/search/v1/{page}" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "description" : "SearchResponse",
+            "schema" : {
+              "$ref" : "#/definitions/SearchResponse"
+            },
+            "produces" : [ "application/json" ]
+          }
+        },
+        "parameters" : [ {
+          "name" : "automapper",
+          "in" : "query",
+          "description" : "Options are a little weird, I may add another enum field in future to make this clearer.\ntrue = both, false = only ai, null = no ai",
+          "required" : false,
+          "type" : "boolean"
+        }, {
+          "name" : "chroma",
+          "in" : "query",
+          "description" : "chroma",
+          "required" : false,
+          "type" : "boolean"
+        }, {
+          "name" : "cinema",
+          "in" : "query",
+          "description" : "cinema",
+          "required" : false,
+          "type" : "boolean"
+        }, {
+          "name" : "curated",
+          "in" : "query",
+          "description" : "curated",
+          "required" : false,
+          "type" : "boolean"
+        }, {
+          "name" : "followed",
+          "in" : "query",
+          "description" : "followed",
+          "required" : false,
+          "type" : "boolean"
+        }, {
+          "name" : "from",
+          "in" : "query",
+          "description" : "from",
+          "required" : false,
+          "type" : "string",
+          "format" : "date-time"
+        }, {
+          "name" : "fullSpread",
+          "in" : "query",
+          "description" : "fullSpread",
+          "required" : false,
+          "type" : "boolean"
+        }, {
+          "name" : "leaderboard",
+          "in" : "query",
+          "description" : "leaderboard",
+          "required" : false,
+          "type" : "string",
+          "enum" : [ "All", "Ranked", "BeatLeader", "ScoreSaber" ]
+        }, {
+          "name" : "maxBpm",
+          "in" : "query",
+          "description" : "Float",
+          "required" : false,
+          "schema" : {
+            "$ref" : "#/definitions/Float"
+          }
+        }, {
+          "name" : "maxDuration",
+          "in" : "query",
+          "description" : "maxDuration",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int32"
+        }, {
+          "name" : "maxNps",
+          "in" : "query",
+          "description" : "Float",
+          "required" : false,
+          "schema" : {
+            "$ref" : "#/definitions/Float"
+          }
+        }, {
+          "name" : "maxRating",
+          "in" : "query",
+          "description" : "Float",
+          "required" : false,
+          "schema" : {
+            "$ref" : "#/definitions/Float"
+          }
+        }, {
+          "name" : "me",
+          "in" : "query",
+          "description" : "me",
+          "required" : false,
+          "type" : "boolean"
+        }, {
+          "name" : "minBpm",
+          "in" : "query",
+          "description" : "Float",
+          "required" : false,
+          "schema" : {
+            "$ref" : "#/definitions/Float"
+          }
+        }, {
+          "name" : "minDuration",
+          "in" : "query",
+          "description" : "minDuration",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int32"
+        }, {
+          "name" : "minNps",
+          "in" : "query",
+          "description" : "Float",
+          "required" : false,
+          "schema" : {
+            "$ref" : "#/definitions/Float"
+          }
+        }, {
+          "name" : "minRating",
+          "in" : "query",
+          "description" : "Float",
+          "required" : false,
+          "schema" : {
+            "$ref" : "#/definitions/Float"
+          }
+        }, {
+          "name" : "noodle",
+          "in" : "query",
+          "description" : "noodle",
+          "required" : false,
+          "type" : "boolean"
+        }, {
+          "name" : "order",
+          "in" : "query",
+          "description" : "order",
+          "required" : false,
+          "type" : "string",
+          "enum" : [ "Latest", "Relevance", "Rating", "Curated", "Random", "Duration" ]
+        }, {
+          "name" : "page",
+          "in" : "path",
+          "description" : "page",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int64",
+          "default" : "0"
+        }, {
+          "name" : "q",
+          "in" : "query",
+          "description" : "q",
+          "required" : true,
+          "type" : "string"
+        }, {
+          "name" : "tags",
+          "in" : "query",
+          "description" : "Tag query, separated by `,` (and) or `|` (or). Excluded tags are prefixed with `!`.",
+          "required" : false,
+          "type" : "string"
+        }, {
+          "name" : "to",
+          "in" : "query",
+          "description" : "to",
+          "required" : false,
+          "type" : "string",
+          "format" : "date-time"
+        }, {
+          "name" : "verified",
+          "in" : "query",
+          "description" : "verified",
+          "required" : false,
+          "type" : "boolean"
+        } ],
+        "tags" : [ {
+          "name" : "Search"
+        } ],
+        "summary" : "Search for maps",
+        "consumes" : [ ]
+      }
+    },
+    "/users/verify" : {
+      "post" : {
+        "responses" : {
+          "200" : {
+            "description" : "ActionResponse",
+            "schema" : {
+              "$ref" : "#/definitions/ActionResponse"
+            },
+            "produces" : [ "application/json" ]
+          }
+        },
+        "parameters" : [ {
+          "name" : "noReflectionBody",
+          "in" : "body",
+          "description" : "AuthRequest",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/definitions/AuthRequest"
+          }
+        } ],
+        "tags" : [ {
+          "name" : "Users"
+        } ],
+        "summary" : "Verify user tokens",
+        "consumes" : [ "application/json" ]
+      }
+    },
+    "/vote" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "description" : "ListOfVoteSummary",
+            "schema" : {
+              "$ref" : "#/definitions/ListOfVoteSummary"
+            },
+            "produces" : [ "application/json" ]
+          },
+          "404" : {
+            "description" : "Not Found",
+            "produces" : [ "application/json" ]
+          }
+        },
+        "parameters" : [ {
+          "name" : "since",
+          "in" : "query",
+          "description" : "since",
+          "required" : false,
+          "type" : "string",
+          "format" : "date-time"
+        } ],
+        "tags" : [ {
+          "name" : "Vote"
+        } ],
+        "summary" : "Get votes",
+        "consumes" : [ ]
+      },
+      "post" : {
+        "responses" : {
+          "200" : {
+            "description" : "ActionResponse",
+            "schema" : {
+              "$ref" : "#/definitions/ActionResponse"
+            },
+            "produces" : [ "application/json" ]
+          }
+        },
+        "parameters" : [ {
+          "name" : "noReflectionBody",
+          "in" : "body",
+          "description" : "VoteRequest",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/definitions/VoteRequest"
+          }
+        } ],
+        "tags" : [ {
+          "name" : "Vote"
+        } ],
+        "summary" : "Vote on a map",
+        "consumes" : [ "application/json" ]
+      }
+    },
+    "/playlists/latest" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "description" : "PlaylistSearchResponse",
+            "schema" : {
+              "$ref" : "#/definitions/PlaylistSearchResponse"
+            },
+            "produces" : [ "application/json" ]
+          }
+        },
+        "parameters" : [ {
+          "name" : "after",
+          "in" : "query",
+          "description" : "Like `before` but will get you maps more recent than the time supplied.\nYYYY-MM-DDTHH:MM:SS+00:00",
+          "required" : false,
+          "type" : "string",
+          "format" : "date-time"
+        }, {
+          "name" : "before",
+          "in" : "query",
+          "description" : "You probably want this. Supplying the uploaded time of the last map in the previous page will get you another page.\nYYYY-MM-DDTHH:MM:SS+00:00",
+          "required" : false,
+          "type" : "string",
+          "format" : "date-time"
+        }, {
+          "name" : "pageSize",
+          "in" : "query",
+          "description" : "1 - 100",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int32",
+          "default" : "20"
+        }, {
+          "name" : "sort",
+          "in" : "query",
+          "description" : "sort",
+          "required" : false,
+          "type" : "string",
+          "enum" : [ "UPDATED", "SONGS_UPDATED", "CREATED", "CURATED" ]
+        } ],
+        "tags" : [ {
+          "name" : "Playlists"
+        } ],
+        "summary" : "Get playlists ordered by created/updated",
+        "consumes" : [ ]
+      }
+    },
+    "/playlists/search/{page}" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "description" : "PlaylistSearchResponse",
+            "schema" : {
+              "$ref" : "#/definitions/PlaylistSearchResponse"
+            },
+            "produces" : [ "application/json" ]
+          }
+        },
+        "parameters" : [ {
+          "name" : "ascending",
+          "in" : "query",
+          "description" : "ascending",
+          "required" : false,
+          "type" : "boolean"
+        }, {
+          "name" : "curated",
+          "in" : "query",
+          "description" : "curated",
+          "required" : false,
+          "type" : "boolean"
+        }, {
+          "name" : "from",
+          "in" : "query",
+          "description" : "from",
+          "required" : false,
+          "type" : "string",
+          "format" : "date-time"
+        }, {
+          "name" : "includeEmpty",
+          "in" : "query",
+          "description" : "includeEmpty",
+          "required" : false,
+          "type" : "boolean"
+        }, {
+          "name" : "maxNps",
+          "in" : "query",
+          "description" : "Float",
+          "required" : false,
+          "schema" : {
+            "$ref" : "#/definitions/Float"
+          }
+        }, {
+          "name" : "minNps",
+          "in" : "query",
+          "description" : "Float",
+          "required" : false,
+          "schema" : {
+            "$ref" : "#/definitions/Float"
+          }
+        }, {
+          "name" : "order",
+          "in" : "query",
+          "description" : "order",
+          "required" : false,
+          "type" : "string",
+          "enum" : [ "Latest", "Relevance", "Rating", "Curated", "Random", "Duration" ]
+        }, {
+          "name" : "page",
+          "in" : "path",
+          "description" : "page",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int64",
+          "default" : "0"
+        }, {
+          "name" : "q",
+          "in" : "query",
+          "description" : "q",
+          "required" : true,
+          "type" : "string"
+        }, {
+          "name" : "to",
+          "in" : "query",
+          "description" : "to",
+          "required" : false,
+          "type" : "string",
+          "format" : "date-time"
+        }, {
+          "name" : "verified",
+          "in" : "query",
+          "description" : "verified",
+          "required" : false,
+          "type" : "boolean"
+        } ],
+        "tags" : [ {
+          "name" : "Playlists"
+        } ],
+        "summary" : "Search for playlists with solr",
+        "consumes" : [ ]
+      }
+    },
+    "/playlists/search/v1/{page}" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "description" : "PlaylistSearchResponse",
+            "schema" : {
+              "$ref" : "#/definitions/PlaylistSearchResponse"
+            },
+            "produces" : [ "application/json" ]
+          }
+        },
+        "parameters" : [ {
+          "name" : "curated",
+          "in" : "query",
+          "description" : "curated",
+          "required" : false,
+          "type" : "boolean"
+        }, {
+          "name" : "from",
+          "in" : "query",
+          "description" : "from",
+          "required" : false,
+          "type" : "string",
+          "format" : "date-time"
+        }, {
+          "name" : "includeEmpty",
+          "in" : "query",
+          "description" : "includeEmpty",
+          "required" : false,
+          "type" : "boolean"
+        }, {
+          "name" : "maxNps",
+          "in" : "query",
+          "description" : "Float",
+          "required" : false,
+          "schema" : {
+            "$ref" : "#/definitions/Float"
+          }
+        }, {
+          "name" : "minNps",
+          "in" : "query",
+          "description" : "Float",
+          "required" : false,
+          "schema" : {
+            "$ref" : "#/definitions/Float"
+          }
+        }, {
+          "name" : "order",
+          "in" : "query",
+          "description" : "order",
+          "required" : false,
+          "type" : "string",
+          "enum" : [ "Latest", "Relevance", "Rating", "Curated", "Random", "Duration" ]
+        }, {
+          "name" : "page",
+          "in" : "path",
+          "description" : "page",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int64",
+          "default" : "0"
+        }, {
+          "name" : "q",
+          "in" : "query",
+          "description" : "q",
+          "required" : true,
+          "type" : "string"
+        }, {
+          "name" : "to",
+          "in" : "query",
+          "description" : "to",
+          "required" : false,
+          "type" : "string",
+          "format" : "date-time"
+        }, {
+          "name" : "verified",
+          "in" : "query",
+          "description" : "verified",
+          "required" : false,
+          "type" : "boolean"
+        } ],
+        "tags" : [ {
+          "name" : "Playlists"
+        } ],
+        "summary" : "Search for playlists",
+        "consumes" : [ ]
+      }
+    },
+    "/playlists/user/{userId}/{page}" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "description" : "PlaylistSearchResponse",
+            "schema" : {
+              "$ref" : "#/definitions/PlaylistSearchResponse"
+            },
+            "produces" : [ "application/json" ]
+          }
+        },
+        "parameters" : [ {
+          "name" : "page",
+          "in" : "path",
+          "description" : "page",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int64"
+        }, {
+          "name" : "userId",
+          "in" : "path",
+          "description" : "userId",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int32"
+        } ],
+        "tags" : [ {
+          "name" : "Playlists"
+        } ],
+        "summary" : "Get playlists by user",
+        "consumes" : [ ]
+      }
+    },
+    "/playlists/map/{mapId}/{page}" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "description" : "PlaylistSearchResponse",
+            "schema" : {
+              "$ref" : "#/definitions/PlaylistSearchResponse"
+            },
+            "produces" : [ "application/json" ]
+          }
+        },
+        "parameters" : [ {
+          "name" : "curated",
+          "in" : "query",
+          "description" : "curated",
+          "required" : false,
+          "type" : "boolean"
+        }, {
+          "name" : "mapId",
+          "in" : "path",
+          "description" : "mapId",
+          "required" : true,
+          "type" : "string"
+        }, {
+          "name" : "page",
+          "in" : "path",
+          "description" : "page",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int64"
+        } ],
+        "tags" : [ {
+          "name" : "Playlists"
+        } ],
+        "summary" : "Get playlists by map",
+        "consumes" : [ ]
+      }
+    },
+    "/playlists/id/{id}/{page}" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "description" : "PlaylistPage",
+            "schema" : {
+              "$ref" : "#/definitions/PlaylistPage"
+            },
+            "produces" : [ "application/json" ]
+          },
+          "404" : {
+            "description" : "Not Found",
+            "produces" : [ "application/json" ]
+          }
+        },
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "description" : "id",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int32"
+        }, {
+          "name" : "page",
+          "in" : "path",
+          "description" : "page",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int64",
+          "default" : "0"
+        } ],
+        "tags" : [ {
+          "name" : "Playlists"
+        } ],
+        "summary" : "Get playlist detail",
+        "consumes" : [ ]
+      }
+    },
+    "/playlists/id/{id}/batch" : {
+      "post" : {
+        "responses" : {
+          "200" : {
+            "description" : "ActionResponse",
+            "schema" : {
+              "$ref" : "#/definitions/ActionResponse"
+            },
+            "produces" : [ "application/json" ]
+          },
+          "404" : {
+            "description" : "ActionResponse",
+            "schema" : {
+              "$ref" : "#/definitions/ActionResponse"
+            },
+            "produces" : [ "application/json" ]
+          },
+          "400" : {
+            "description" : "ActionResponse",
+            "schema" : {
+              "$ref" : "#/definitions/ActionResponse"
+            },
+            "produces" : [ "application/json" ]
+          }
+        },
+        "parameters" : [ {
+          "name" : "noReflectionBody",
+          "in" : "body",
+          "description" : "PlaylistBatchRequest",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/definitions/PlaylistBatchRequest"
+          }
+        }, {
+          "name" : "id",
+          "in" : "path",
+          "description" : "id",
+          "required" : false,
+          "type" : "integer",
+          "format" : "int32"
+        } ],
+        "tags" : [ {
+          "name" : "Playlists"
+        } ],
+        "summary" : "Add or remove up to 100 maps to a playlist. Requires OAUTH",
+        "consumes" : [ "application/json" ]
+      }
+    }
+  },
+  "definitions" : {
+    "MapDetail" : {
+      "properties" : {
+        "automapper" : {
+          "type" : "boolean"
+        },
+        "blQualified" : {
+          "type" : "boolean"
+        },
+        "blRanked" : {
+          "type" : "boolean"
+        },
+        "bookmarked" : {
+          "type" : "boolean"
+        },
+        "collaborators" : {
+          "type" : "array",
+          "items" : {
+            "description" : "UserDetail",
+            "$ref" : "#/definitions/UserDetail"
+          }
+        },
+        "createdAt" : {
+          "type" : "string",
+          "format" : "date-time"
+        },
+        "curatedAt" : {
+          "type" : "string",
+          "format" : "date-time"
+        },
+        "curator" : {
+          "description" : "UserDetail",
+          "$ref" : "#/definitions/UserDetail"
+        },
+        "declaredAi" : {
+          "type" : "string",
+          "enum" : [ "Admin", "Uploader", "SageScore", "None" ]
+        },
+        "deletedAt" : {
+          "type" : "string",
+          "format" : "date-time"
+        },
+        "description" : {
+          "type" : "string"
+        },
+        "id" : {
+          "type" : "string"
+        },
+        "lastPublishedAt" : {
+          "type" : "string",
+          "format" : "date-time"
+        },
+        "metadata" : {
+          "description" : "MapDetailMetadata",
+          "$ref" : "#/definitions/MapDetailMetadata"
+        },
+        "name" : {
+          "type" : "string"
+        },
+        "nsfw" : {
+          "type" : "boolean"
+        },
+        "qualified" : {
+          "type" : "boolean"
+        },
+        "ranked" : {
+          "type" : "boolean"
+        },
+        "stats" : {
+          "description" : "MapStats",
+          "$ref" : "#/definitions/MapStats"
+        },
+        "tags" : {
+          "type" : "array",
+          "items" : {
+            "type" : "string",
+            "enum" : [ "", "tech", "dance-style", "speed", "balanced", "challenge", "accuracy", "fitness", "poodle", "swing", "nightcore", "folk-acoustic", "kids-family", "ambient", "funk-disco", "jazz", "classical-orchestral", "soul", "speedcore", "punk", "rb", "holiday", "vocaloid", "j-rock", "trance", "drum-and-bass", "comedy-meme", "instrumental", "hardcore", "k-pop", "indie", "techno", "house", "video-game-soundtrack", "tv-movie-soundtrack", "alternative", "dubstep", "metal", "anime", "hip-hop-rap", "j-pop", "dance", "rock", "pop", "electronic", "ai" ]
+          }
+        },
+        "updatedAt" : {
+          "type" : "string",
+          "format" : "date-time"
+        },
+        "uploaded" : {
+          "type" : "string",
+          "format" : "date-time"
+        },
+        "uploader" : {
+          "description" : "UserDetail",
+          "$ref" : "#/definitions/UserDetail"
+        },
+        "versions" : {
+          "type" : "array",
+          "items" : {
+            "description" : "MapVersion",
+            "$ref" : "#/definitions/MapVersion"
+          }
+        }
+      }
+    },
+    "UserDetail" : {
+      "properties" : {
+        "accountStanding" : {
+          "type" : "array",
+          "items" : {
+            "description" : "AccountStandingEntry",
+            "$ref" : "#/definitions/AccountStandingEntry"
+          }
+        },
+        "admin" : {
+          "type" : "boolean"
+        },
+        "avatar" : {
+          "type" : "string"
+        },
+        "blurnsfw" : {
+          "type" : "boolean"
+        },
+        "curator" : {
+          "type" : "boolean"
+        },
+        "curatorTab" : {
+          "type" : "boolean"
+        },
+        "description" : {
+          "type" : "string"
+        },
+        "email" : {
+          "type" : "string"
+        },
+        "followData" : {
+          "description" : "UserFollowData",
+          "$ref" : "#/definitions/UserFollowData"
+        },
+        "hash" : {
+          "type" : "string"
+        },
+        "id" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "name" : {
+          "type" : "string"
+        },
+        "patreon" : {
+          "type" : "string",
+          "enum" : [ "None", "Supporter", "SupporterPlus" ]
+        },
+        "playlistUrl" : {
+          "type" : "string"
+        },
+        "seniorCurator" : {
+          "type" : "boolean"
+        },
+        "stats" : {
+          "description" : "UserStats",
+          "$ref" : "#/definitions/UserStats"
+        },
+        "suspensions" : {
+          "type" : "array",
+          "items" : {
+            "type" : "string",
+            "enum" : [ "Review", "Upload" ]
+          }
+        },
+        "testplay" : {
+          "type" : "boolean"
+        },
+        "type" : {
+          "type" : "string",
+          "enum" : [ "DISCORD", "SIMPLE", "DUAL" ]
+        },
+        "uniqueSet" : {
+          "type" : "boolean"
+        },
+        "uploadLimit" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "verifiedMapper" : {
+          "type" : "boolean"
+        },
+        "vivifyLimit" : {
+          "type" : "integer",
+          "format" : "int32"
+        }
+      }
+    },
+    "AccountStandingEntry" : {
+      "properties" : {
+        "createdAt" : {
+          "type" : "string",
+          "format" : "date-time"
+        },
+        "description" : {
+          "type" : "string"
+        },
+        "lengthMinutes" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "status" : {
+          "type" : "string",
+          "enum" : [ "ACTIVE", "REVOKED", "EXPIRED" ]
+        },
+        "type" : {
+          "type" : "string",
+          "enum" : [ "Review", "Upload" ]
+        }
+      }
+    },
+    "UserFollowData" : {
+      "properties" : {
+        "collab" : {
+          "type" : "boolean"
+        },
+        "curation" : {
+          "type" : "boolean"
+        },
+        "followers" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "following" : {
+          "type" : "boolean"
+        },
+        "follows" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "upload" : {
+          "type" : "boolean"
+        }
+      }
+    },
+    "UserStats" : {
+      "properties" : {
+        "avgBpm" : {
+          "description" : "Float",
+          "$ref" : "#/definitions/Float"
+        },
+        "avgDuration" : {
+          "description" : "Float",
+          "$ref" : "#/definitions/Float"
+        },
+        "avgScore" : {
+          "description" : "Float",
+          "$ref" : "#/definitions/Float"
+        },
+        "diffStats" : {
+          "description" : "UserDiffStats",
+          "$ref" : "#/definitions/UserDiffStats"
+        },
+        "firstUpload" : {
+          "type" : "string",
+          "format" : "date-time"
+        },
+        "lastUpload" : {
+          "type" : "string",
+          "format" : "date-time"
+        },
+        "rankedMaps" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "totalDownvotes" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "totalMaps" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "totalPlaylists" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "totalUpvotes" : {
+          "type" : "integer",
+          "format" : "int32"
+        }
+      }
+    },
+    "Float" : {
+      "properties" : { }
+    },
+    "UserDiffStats" : {
+      "properties" : {
+        "easy" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "expert" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "expertPlus" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "hard" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "normal" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "total" : {
+          "type" : "integer",
+          "format" : "int32"
+        }
+      }
+    },
+    "MapDetailMetadata" : {
+      "properties" : {
+        "bpm" : {
+          "description" : "Float",
+          "$ref" : "#/definitions/Float"
+        },
+        "duration" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "levelAuthorName" : {
+          "type" : "string"
+        },
+        "songAuthorName" : {
+          "type" : "string"
+        },
+        "songName" : {
+          "type" : "string"
+        },
+        "songSubName" : {
+          "type" : "string"
+        }
+      }
+    },
+    "MapStats" : {
+      "properties" : {
+        "downloads" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "downvotes" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "plays" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "reviews" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "score" : {
+          "description" : "Float",
+          "$ref" : "#/definitions/Float"
+        },
+        "scoreOneDP" : {
+          "description" : "Float",
+          "$ref" : "#/definitions/Float"
+        },
+        "sentiment" : {
+          "type" : "string",
+          "enum" : [ "PENDING", "VERY_NEGATIVE", "MOSTLY_NEGATIVE", "MIXED", "MOSTLY_POSITIVE", "VERY_POSITIVE" ]
+        },
+        "upvotes" : {
+          "type" : "integer",
+          "format" : "int32"
+        }
+      }
+    },
+    "MapVersion" : {
+      "properties" : {
+        "coverURL" : {
+          "type" : "string"
+        },
+        "createdAt" : {
+          "type" : "string",
+          "format" : "date-time"
+        },
+        "diffs" : {
+          "type" : "array",
+          "items" : {
+            "description" : "MapDifficulty",
+            "$ref" : "#/definitions/MapDifficulty"
+          }
+        },
+        "downloadURL" : {
+          "type" : "string"
+        },
+        "feedback" : {
+          "type" : "string"
+        },
+        "hash" : {
+          "type" : "string"
+        },
+        "key" : {
+          "type" : "string"
+        },
+        "previewURL" : {
+          "type" : "string"
+        },
+        "sageScore" : {
+          "description" : "Short",
+          "$ref" : "#/definitions/Short"
+        },
+        "scheduledAt" : {
+          "type" : "string",
+          "format" : "date-time"
+        },
+        "state" : {
+          "type" : "string",
+          "enum" : [ "Uploaded", "Testplay", "Published", "Feedback", "Scheduled" ]
+        },
+        "testplayAt" : {
+          "type" : "string",
+          "format" : "date-time"
+        },
+        "testplays" : {
+          "type" : "array",
+          "items" : {
+            "description" : "MapTestplay",
+            "$ref" : "#/definitions/MapTestplay"
+          }
+        }
+      }
+    },
+    "MapDifficulty" : {
+      "properties" : {
+        "blStars" : {
+          "description" : "Float",
+          "$ref" : "#/definitions/Float"
+        },
+        "bombs" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "characteristic" : {
+          "type" : "string",
+          "enum" : [ "Standard", "OneSaber", "NoArrows", "90Degree", "360Degree", "Lightshow", "Lawless", "Legacy" ]
+        },
+        "chroma" : {
+          "type" : "boolean"
+        },
+        "cinema" : {
+          "type" : "boolean"
+        },
+        "difficulty" : {
+          "type" : "string",
+          "enum" : [ "Easy", "Normal", "Hard", "Expert", "ExpertPlus" ]
+        },
+        "environment" : {
+          "type" : "string",
+          "enum" : [ "DefaultEnvironment", "TriangleEnvironment", "NiceEnvironment", "BigMirrorEnvironment", "KDAEnvironment", "MonstercatEnvironment", "CrabRaveEnvironment", "DragonsEnvironment", "OriginsEnvironment", "PanicEnvironment", "RocketEnvironment", "GreenDayEnvironment", "GreenDayGrenadeEnvironment", "TimbalandEnvironment", "FitBeatEnvironment", "LinkinParkEnvironment", "BTSEnvironment", "KaleidoscopeEnvironment", "InterscopeEnvironment", "SkrillexEnvironment", "BillieEnvironment", "HalloweenEnvironment", "GagaEnvironment", "Halloween2Environment", "GlassDesertEnvironment", "MultiplayerEnvironment", "WeaveEnvironment", "PyroEnvironment", "EDMEnvironment", "TheSecondEnvironment", "LizzoEnvironment", "TheWeekndEnvironment", "RockMixtapeEnvironment", "Dragons2Environment", "Panic2Environment", "QueenEnvironment", "LinkinPark2Environment", "TheRollingStonesEnvironment", "LatticeEnvironment", "DaftPunkEnvironment", "HipHopEnvironment", "ColliderEnvironment", "BritneyEnvironment", "Monstercat2Environment", "MetallicaEnvironment", "GridEnvironment", "ColdplayEnvironment", "ProdigyEnvironment" ]
+        },
+        "events" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "label" : {
+          "type" : "string"
+        },
+        "length" : {
+          "type" : "number",
+          "format" : "double"
+        },
+        "maxScore" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "me" : {
+          "type" : "boolean"
+        },
+        "ne" : {
+          "type" : "boolean"
+        },
+        "njs" : {
+          "description" : "Float",
+          "$ref" : "#/definitions/Float"
+        },
+        "notes" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "nps" : {
+          "type" : "number",
+          "format" : "double"
+        },
+        "obstacles" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "offset" : {
+          "description" : "Float",
+          "$ref" : "#/definitions/Float"
+        },
+        "paritySummary" : {
+          "description" : "MapParitySummary",
+          "$ref" : "#/definitions/MapParitySummary"
+        },
+        "seconds" : {
+          "type" : "number",
+          "format" : "double"
+        },
+        "stars" : {
+          "description" : "Float",
+          "$ref" : "#/definitions/Float"
+        },
+        "vivify" : {
+          "type" : "boolean"
+        }
+      }
+    },
+    "MapParitySummary" : {
+      "properties" : {
+        "errors" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "resets" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "warns" : {
+          "type" : "integer",
+          "format" : "int32"
+        }
+      }
+    },
+    "Short" : {
+      "properties" : { }
+    },
+    "MapTestplay" : {
+      "properties" : {
+        "createdAt" : {
+          "type" : "string",
+          "format" : "date-time"
+        },
+        "feedback" : {
+          "type" : "string"
+        },
+        "feedbackAt" : {
+          "type" : "string",
+          "format" : "date-time"
+        },
+        "user" : {
+          "description" : "UserDetail",
+          "$ref" : "#/definitions/UserDetail"
+        },
+        "video" : {
+          "type" : "string"
+        }
+      }
+    },
+    "SearchResponse" : {
+      "properties" : {
+        "docs" : {
+          "type" : "array",
+          "items" : {
+            "description" : "MapDetail",
+            "$ref" : "#/definitions/MapDetail"
+          }
+        },
+        "info" : {
+          "description" : "SearchInfo",
+          "$ref" : "#/definitions/SearchInfo"
+        },
+        "redirect" : {
+          "type" : "string"
+        }
+      }
+    },
+    "SearchInfo" : {
+      "properties" : {
+        "duration" : {
+          "description" : "Float",
+          "$ref" : "#/definitions/Float"
+        },
+        "pages" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "total" : {
+          "type" : "integer",
+          "format" : "int32"
+        }
+      }
+    },
+    "DeletedResponse" : {
+      "properties" : {
+        "docs" : {
+          "type" : "array",
+          "items" : {
+            "description" : "DeletedMap",
+            "$ref" : "#/definitions/DeletedMap"
+          }
+        }
+      }
+    },
+    "DeletedMap" : {
+      "properties" : {
+        "deletedAt" : {
+          "type" : "string",
+          "format" : "date-time"
+        },
+        "id" : {
+          "type" : "string"
+        }
+      }
+    },
+    "UserSearchResponse" : {
+      "properties" : {
+        "docs" : {
+          "type" : "array",
+          "items" : {
+            "description" : "UserDetail",
+            "$ref" : "#/definitions/UserDetail"
+          }
+        },
+        "info" : {
+          "description" : "SearchInfo",
+          "$ref" : "#/definitions/SearchInfo"
+        }
+      }
+    },
+    "AuthRequest" : {
+      "properties" : {
+        "gameVersion" : {
+          "type" : "string"
+        },
+        "oculusId" : {
+          "type" : "string"
+        },
+        "proof" : {
+          "type" : "string"
+        },
+        "steamId" : {
+          "type" : "string"
+        }
+      }
+    },
+    "ActionResponse" : {
+      "properties" : {
+        "errors" : {
+          "type" : "array",
+          "items" : {
+            "type" : "string"
+          }
+        },
+        "success" : {
+          "type" : "boolean"
+        }
+      }
+    },
+    "ListOfVoteSummary" : {
+      "items" : {
+        "description" : "VoteSummary",
+        "$ref" : "#/definitions/VoteSummary"
+      },
+      "uniqueItems" : false,
+      "type" : "array"
+    },
+    "VoteSummary" : {
+      "properties" : {
+        "downvotes" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "hash" : {
+          "type" : "string"
+        },
+        "key64" : {
+          "type" : "string"
+        },
+        "mapId" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "score" : {
+          "type" : "number",
+          "format" : "double"
+        },
+        "upvotes" : {
+          "type" : "integer",
+          "format" : "int32"
+        }
+      }
+    },
+    "VoteRequest" : {
+      "properties" : {
+        "auth" : {
+          "description" : "AuthRequest",
+          "$ref" : "#/definitions/AuthRequest"
+        },
+        "direction" : {
+          "type" : "boolean"
+        },
+        "hash" : {
+          "type" : "string"
+        }
+      }
+    },
+    "PlaylistSearchResponse" : {
+      "properties" : {
+        "docs" : {
+          "type" : "array",
+          "items" : {
+            "description" : "PlaylistFull",
+            "$ref" : "#/definitions/PlaylistFull"
+          }
+        },
+        "info" : {
+          "description" : "SearchInfo",
+          "$ref" : "#/definitions/SearchInfo"
+        }
+      }
+    },
+    "PlaylistFull" : {
+      "properties" : {
+        "config" : {
+          "description" : "IPlaylistConfig",
+          "$ref" : "#/definitions/IPlaylistConfig"
+        },
+        "createdAt" : {
+          "type" : "string",
+          "format" : "date-time"
+        },
+        "curatedAt" : {
+          "type" : "string",
+          "format" : "date-time"
+        },
+        "curator" : {
+          "description" : "UserDetail",
+          "$ref" : "#/definitions/UserDetail"
+        },
+        "deletedAt" : {
+          "type" : "string",
+          "format" : "date-time"
+        },
+        "description" : {
+          "type" : "string"
+        },
+        "downloadURL" : {
+          "type" : "string"
+        },
+        "name" : {
+          "type" : "string"
+        },
+        "owner" : {
+          "description" : "UserDetail",
+          "$ref" : "#/definitions/UserDetail"
+        },
+        "playlistId" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "playlistImage" : {
+          "type" : "string"
+        },
+        "playlistImage512" : {
+          "type" : "string"
+        },
+        "songsChangedAt" : {
+          "type" : "string",
+          "format" : "date-time"
+        },
+        "stats" : {
+          "description" : "PlaylistStats",
+          "$ref" : "#/definitions/PlaylistStats"
+        },
+        "type" : {
+          "type" : "string",
+          "enum" : [ "Private", "Public", "System", "Search" ]
+        },
+        "updatedAt" : {
+          "type" : "string",
+          "format" : "date-time"
+        }
+      }
+    },
+    "IPlaylistConfig" : {
+      "properties" : { }
+    },
+    "PlaylistStats" : {
+      "properties" : {
+        "avgScore" : {
+          "description" : "Float",
+          "$ref" : "#/definitions/Float"
+        },
+        "downVotes" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "mapperCount" : {
+          "type" : "integer",
+          "format" : "int64"
+        },
+        "maxNps" : {
+          "type" : "number",
+          "format" : "double"
+        },
+        "maxNpsTwoDP" : {
+          "type" : "number",
+          "format" : "double"
+        },
+        "minNps" : {
+          "type" : "number",
+          "format" : "double"
+        },
+        "minNpsTwoDP" : {
+          "type" : "number",
+          "format" : "double"
+        },
+        "scoreOneDP" : {
+          "description" : "Float",
+          "$ref" : "#/definitions/Float"
+        },
+        "totalDuration" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "totalMaps" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "upVotes" : {
+          "type" : "integer",
+          "format" : "int32"
+        }
+      }
+    },
+    "PlaylistPage" : {
+      "properties" : {
+        "maps" : {
+          "type" : "array",
+          "items" : {
+            "description" : "MapDetailWithOrder",
+            "$ref" : "#/definitions/MapDetailWithOrder"
+          }
+        },
+        "playlist" : {
+          "description" : "PlaylistFull",
+          "$ref" : "#/definitions/PlaylistFull"
+        }
+      }
+    },
+    "MapDetailWithOrder" : {
+      "properties" : {
+        "map" : {
+          "description" : "MapDetail",
+          "$ref" : "#/definitions/MapDetail"
+        },
+        "order" : {
+          "description" : "Float",
+          "$ref" : "#/definitions/Float"
+        }
+      }
+    },
+    "PlaylistBatchRequest" : {
+      "properties" : {
+        "hashes" : {
+          "type" : "array",
+          "items" : {
+            "type" : "string"
+          }
+        },
+        "ignoreUnknown" : {
+          "type" : "boolean"
+        },
+        "inPlaylist" : {
+          "type" : "boolean"
+        },
+        "keys" : {
+          "type" : "array",
+          "items" : {
+            "type" : "string"
+          }
+        }
+      }
+    }
+  }
+}

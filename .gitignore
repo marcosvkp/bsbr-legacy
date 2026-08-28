@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+
+# Dados locais
+storage/
+backend/storage/
+*.sqlite3
+*.db
+
+# Analyzer: dataset de treino e caches de download (o modelo em models/ é versionado)
+backend/bsbr_analyzer/data/
+
+# Ambiente
+.env
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+
+# IDE / SO
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Artefatos locais (screenshots, snapshots de UI, automação)
+.playwright-mcp/
+
+# Legado BSBR com .git próprio (mantido fora do repo principal)
+references/bsbr/
+img.png
+ranking.png
+admin-after-save.md
+admin-page.md
+admin-token-filled.md
+home-snapshot.md
+stars-global.md
+stars-ranking-snapshot.md

@@ -1,0 +1,254 @@
+{
+  "playlistTitle": "BSBR Ranked Maps",
+  "playlistAuthor": "BSBR Team",
+  "customData": {
+    "syncURL": ""
+  },
+  "songs": [
+    {
+      "songName": "ZOIO EU TE DESAFIO EXTENDED",
+      "levelAuthorName": "Xarope93",
+      "hash": "A41643C9BAFD5532AD793668C2F0D156A1A2DD29",
+      "levelid": "custom_level_A41643C9BAFD5532AD793668C2F0D156A1A2DD29",
+      "difficulties": [
+        {
+          "characteristic": "Standard",
+          "name": "ExpertPlus"
+        }
+      ]
+    },
+    {
+      "songName": "Shake It Bololo ft Classics of MPB",
+      "levelAuthorName": "tertiusseptimus",
+      "hash": "5370BB3C965381A964BC14DEE55F2B7A988B8A9F",
+      "levelid": "custom_level_5370BB3C965381A964BC14DEE55F2B7A988B8A9F",
+      "difficulties": [
+        {
+          "characteristic": "Standard",
+          "name": "Expert"
+        }
+      ]
+    },
+    {
+      "songName": "M\u00e3os para cima! (feat. Hatsune Miku)",
+      "levelAuthorName": "RUI",
+      "hash": "B2C06D5A418F06E4CBD9A243360E9D1E89A14B8D",
+      "levelid": "custom_level_B2C06D5A418F06E4CBD9A243360E9D1E89A14B8D",
+      "difficulties": [
+        {
+          "characteristic": "Standard",
+          "name": "Easy"
+        },
+        {
+          "characteristic": "Standard",
+          "name": "Normal"
+        },
+        {
+          "characteristic": "Standard",
+          "name": "Hard"
+        },
+        {
+          "characteristic": "Standard",
+          "name": "Expert"
+        },
+        {
+          "characteristic": "Standard",
+          "name": "ExpertPlus"
+        }
+      ]
+    },
+    {
+      "songName": "DIA DELICIA",
+      "levelAuthorName": "NAKAMA",
+      "hash": "5246CB66DE9268CEB8339B1BE42787D8565D8A65",
+      "levelid": "custom_level_5246CB66DE9268CEB8339B1BE42787D8565D8A65",
+      "difficulties": [
+        {
+          "characteristic": "Standard",
+          "name": "ExpertPlus"
+        }
+      ]
+    },
+    {
+      "songName": "Michael Te Amo Jackson Te Amo",
+      "levelAuthorName": "Caio Santana",
+      "hash": "59C8A4D8A86C2E74F154D36677316C623E7D9F7E",
+      "levelid": "custom_level_59C8A4D8A86C2E74F154D36677316C623E7D9F7E",
+      "difficulties": [
+        {
+          "characteristic": "Standard",
+          "name": "Easy"
+        },
+        {
+          "characteristic": "Standard",
+          "name": "Normal"
+        },
+        {
+          "characteristic": "Standard",
+          "name": "Hard"
+        },
+        {
+          "characteristic": "Standard",
+          "name": "Expert"
+        },
+        {
+          "characteristic": "Standard",
+          "name": "ExpertPlus"
+        }
+      ]
+    },
+    {
+      "songName": "Waifu",
+      "levelAuthorName": "Emilia",
+      "hash": "83AFEC553409AA3CF4B2513C9FE47FE5E4B4B78A",
+      "levelid": "custom_level_83AFEC553409AA3CF4B2513C9FE47FE5E4B4B78A",
+      "difficulties": [
+        {
+          "characteristic": "Standard",
+          "name": "ExpertPlus"
+        }
+      ]
+    },
+    {
+      "songName": "Otaku2",
+      "levelAuthorName": "Emilia",
+      "hash": "6CD21FEE5E4AB84ED22C3291F4CDE5C46FAEBDAD",
+      "levelid": "custom_level_6CD21FEE5E4AB84ED22C3291F4CDE5C46FAEBDAD",
+      "difficulties": [
+        {
+          "characteristic": "Standard",
+          "name": "ExpertPlus"
+        }
+      ]
+    },
+    {
+      "songName": "Arlequina",
+      "levelAuthorName": "Emilia",
+      "hash": "51ECA723F5100EB4F2AC7BF1021AC25B6E40593E",
+      "levelid": "custom_level_51ECA723F5100EB4F2AC7BF1021AC25B6E40593E",
+      "difficulties": [
+        {
+          "characteristic": "Standard",
+          "name": "ExpertPlus"
+        }
+      ]
+    },
+    {
+      "songName": "Cheia de Marra",
+      "levelAuthorName": "Emilia",
+      "hash": "808D50393E4D12EDAAD6253DCC28913458424E0F",
+      "levelid": "custom_level_808D50393E4D12EDAAD6253DCC28913458424E0F",
+      "difficulties": [
+        {
+          "characteristic": "Standard",
+          "name": "ExpertPlus"
+        }
+      ]
+    },
+    {
+      "songName": "Automotivo Holiday",
+      "levelAuthorName": "Emilia",
+      "hash": "EBC3956801802F286FC22CCB940796AC694DE81A",
+      "levelid": "custom_level_EBC3956801802F286FC22CCB940796AC694DE81A",
+      "difficulties": [
+        {
+          "characteristic": "Standard",
+          "name": "ExpertPlus"
+        }
+      ]
+    },
+    {
+      "songName": "Vem Vem",
+      "levelAuthorName": "Fusion",
+      "hash": "D599290B24CA3EEC5822D9B9A545A148A53681FF",
+      "levelid": "custom_level_D599290B24CA3EEC5822D9B9A545A148A53681FF",
+      "difficulties": [
+        {
+          "characteristic": "Standard",
+          "name": "ExpertPlus"
+        }
+      ]
+    },
+    {
+      "songName": "ANGRY BIRDS PHONK",
+      "levelAuthorName": "voltage4536",
+      "hash": "3D698B9B4DECA4D77DC09BE04B6F284AB2A6A469",
+      "levelid": "custom_level_3D698B9B4DECA4D77DC09BE04B6F284AB2A6A469",
+      "difficulties": [
+        {
+          "characteristic": "Standard",
+          "name": "Easy"
+        },
+        {
+          "characteristic": "Standard",
+          "name": "Normal"
+        },
+        {
+          "characteristic": "Standard",
+          "name": "Hard"
+        },
+        {
+          "characteristic": "Standard",
+          "name": "Expert"
+        },
+        {
+          "characteristic": "Standard",
+          "name": "ExpertPlus"
+        }
+      ]
+    },
+    {
+      "songName": "MONTAGEM VOZES TALENTINHO",
+      "levelAuthorName": "XiryuriKalo",
+      "hash": "BCA62679DB827C0C1009BE0EDB7813D6F5DA1573",
+      "levelid": "custom_level_BCA62679DB827C0C1009BE0EDB7813D6F5DA1573",
+      "difficulties": [
+        {
+          "characteristic": "Standard",
+          "name": "Easy"
+        }
+      ]
+    },
+    {
+      "songName": "Harry Porra",
+      "levelAuthorName": "Emilia",
+      "hash": "BC64771729ABADC0E680A7CF2B78A8DB5EAB7EDB",
+      "levelid": "custom_level_BC64771729ABADC0E680A7CF2B78A8DB5EAB7EDB",
+      "difficulties": [
+        {
+          "characteristic": "Standard",
+          "name": "Expert"
+        }
+      ]
+    },
+    {
+      "songName": "Pensamento Tipico de Esquerda Caviar",
+      "levelAuthorName": "SlimyBlob & Emilia",
+      "hash": "056304D086A0FE55FFC8879CC23943BC1EDAB0B8",
+      "levelid": "custom_level_056304D086A0FE55FFC8879CC23943BC1EDAB0B8",
+      "difficulties": [
+        {
+          "characteristic": "Standard",
+          "name": "Expert"
+        },
+        {
+          "characteristic": "Standard",
+          "name": "ExpertPlus"
+        }
+      ]
+    },
+    {
+      "songName": "Succubus Imortal",
+      "levelAuthorName": "Emilia",
+      "hash": "A71BAA6A23A613FE4251D9CAA870BD442E0E6DBA",
+      "levelid": "custom_level_A71BAA6A23A613FE4251D9CAA870BD442E0E6DBA",
+      "difficulties": [
+        {
+          "characteristic": "Standard",
+          "name": "ExpertPlus"
+        }
+      ]
+    }
+  ],
+  "image": "base64,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"
+}

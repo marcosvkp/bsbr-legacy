@@ -1,0 +1,12 @@
+.git
+__pycache__
+*.pyc
+.venv
+venv
+.env
+tests
+celerybeat-schedule
+*.db
+*.sqlite3
+# Dataset de treino e caches de download (1.8GB+) — só o builder/train usam, não a API
+bsbr_analyzer/data/

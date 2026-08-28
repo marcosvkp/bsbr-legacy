@@ -1,0 +1,104 @@
+"""Persistência de scores ao vivo — mesmo padrão de upsert do sync.
+
+Um score ao vivo só é persistido se a dificuldade for conhecida no banco
+(match por ss_leaderboard_id). Players desconhecidos são criados com o nome
+do payload (o sync completo preenche country/avatar depois).
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import datetime
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models import Difficulty, Player, Score
+from app.services.pp_engine import decompose_pp
+
+from .messages import LiveScore
+
+logger = logging.getLogger(__name__)
+
+
+async def persist_live_score(session: AsyncSession, live: LiveScore) -> dict | None:
+    """Upsert de um score ao vivo; None se o mapa não é conhecido/rankeado."""
+    difficulty = (
+        await session.scalars(
+            select(Difficulty).where(Difficulty.ss_leaderboard_id == live.leaderboard_id)
+        )
+    ).first()
+    if difficulty is None:
+        return {"ignored": "unknown_leaderboard"}
+
+    player = (
+        await session.scalars(select(Player).where(Player.ss_id == live.player_id))
+    ).first()
+    if player is None:
+        player = Player(
+            ss_id=live.player_id,
+            name=live.player_name or live.player_id,
+            country=live.player_country,
+        )
+        session.add(player)
+        await session.flush()
+
+    time_set = live.time_set
+    existing = (
+        await session.scalars(
+            select(Score).where(
+                Score.player_id == player.id,
+                Score.difficulty_id == difficulty.id,
+                Score.time_set == time_set,
+            )
+        )
+    ).first()
+
+    is_new = existing is None
+    if is_new:
+        existing = Score(player_id=player.id, difficulty_id=difficulty.id, time_set=time_set)
+        session.add(existing)
+
+    existing.score = live.score
+    existing.acc = live.acc
+    existing.modifiers = live.mods or None
+    existing.full_combo = live.full_combo
+    existing.leaderboard_rank = live.rank
+
+    # PP calculado como no sync (sub-stars da dificuldade); fallback pp do feed
+    if difficulty.total_stars and live.acc is not None:
+        shares = _shares_of(difficulty)
+        sub = decompose_pp(
+            float(difficulty.total_stars),
+            live.acc * 100,
+            share_acc=shares[0],
+            share_tech=shares[1],
+            share_speed=shares[2],
+        )
+        existing.pp = sub["pp_total"]
+        existing.pp_acc = sub["pp_acc"]
+        existing.pp_tech = sub["pp_tech"]
+        existing.pp_speed = sub["pp_speed"]
+    elif live.pp is not None:
+        existing.pp = live.pp
+
+    await session.commit()
+    result = {"inserted" if is_new else "updated": existing.id}
+    result["pp"] = existing.pp
+    result["acc"] = existing.acc
+    return result
+
+
+def _shares_of(difficulty: Difficulty) -> tuple[float, float, float]:
+    total = (
+        float(difficulty.acc_stars or 0.0)
+        + float(difficulty.tech_stars or 0.0)
+        + float(difficulty.speed_stars or 0.0)
+    )
+    if total <= 0:
+        return 1.0, 0.0, 0.0
+    return (
+        float(difficulty.acc_stars or 0.0) / total,
+        float(difficulty.tech_stars or 0.0) / total,
+        float(difficulty.speed_stars or 0.0) / total,
+    )
