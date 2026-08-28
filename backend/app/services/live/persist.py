@@ -12,6 +12,7 @@ from datetime import datetime
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from app.models import Difficulty, Map, MapStatus, Player, Score
 from app.services.pp_engine import decompose_pp
@@ -35,6 +36,7 @@ async def persist_live_score(session: AsyncSession, live: LiveScore) -> dict | N
         await session.scalars(
             select(Difficulty)
             .join(Map, Difficulty.map_id == Map.id)
+            .options(joinedload(Difficulty.map))
             .where(Difficulty.ss_leaderboard_id == live.leaderboard_id)
             .where(Map.status == MapStatus.RANKED)
         )
