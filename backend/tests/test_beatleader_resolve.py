@@ -58,14 +58,16 @@ def test_extract_ss_id_from_socials_returns_none():
 
 
 async def test_resolve_steam_id_direct(session):
-    """bl_id = Steam ID (17 dígitos) → ss_id = bl_id, sem chamada de API."""
+    """bl_id = Steam ID (17 dígitos) → ss_id = bl_id sem depender de socials.
+    O perfil BL só é consultado para enriquecimento (avatar/país), nunca para
+    resolver o vínculo (cai no cache se a API falhar)."""
     clear_cache()
     client = FakeClient({})
     player = await resolve_bl_player(session, "76561199113852020", client, player_name="Ren93")
     assert player.ss_id == "76561199113852020"
     assert player.bl_id == "76561199113852020"
     assert player.bl_resolved_at is not None
-    assert client.calls == []  # não precisou da API
+    assert client.calls == ["full:76561199113852020"]  # só enriquecimento
 
 
 async def test_resolve_via_socials(session):
@@ -100,6 +102,27 @@ async def test_resolve_creates_player_without_link(session):
     assert player.bl_id == bl_id
     assert player.ss_id == bl_id  # provisório
     assert player.bl_resolved_at is None
+
+
+async def test_resolve_enriches_profile_from_bl(session):
+    """Avatar/país vêm do perfil BL (o score BL não traz avatar) — padrão AccSaber."""
+    clear_cache()
+    bl_id = "76561199113852020"  # steam
+    client = FakeClient(
+        {
+            bl_id: {
+                "id": bl_id,
+                "name": "Ren93",
+                "country": "BR",
+                "avatar": "https://cdn.beatleader.xyz/avatars/ren93.png",
+                "platform": "steam",
+            }
+        }
+    )
+    player = await resolve_bl_player(session, bl_id, client, player_name="Ren93")
+    assert player.avatar_url == "https://cdn.beatleader.xyz/avatars/ren93.png"
+    assert player.country == "BR"
+    assert player.name == "Ren93"
 
 
 async def test_resolve_reuses_existing_player(session):

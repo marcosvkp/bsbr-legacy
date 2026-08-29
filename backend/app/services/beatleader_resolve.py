@@ -105,18 +105,27 @@ async def resolve_bl_player(
     else:
         ss_id = _cache_get(bl_id)
 
+    # Enriquecimento de perfil: o payload do score BL não traz avatar/país —
+    # busca o perfil completo quando precisamos da API de qualquer forma.
+    bl_profile: dict[str, Any] | None = None
+
     # 1) chave da API para vínculo por plataforma/socials (só se ainda não
     #    resolvido pelo Steam ID direto)
     if ss_id is None and client is not None:
-        player = await client.player_full(bl_id)
-        if player:
-            ss_id = _resolve_by_platform(player) or extract_ss_id_from_socials(
-                player.get("socials")
+        bl_profile = await client.player_full(bl_id)
+        if bl_profile:
+            ss_id = _resolve_by_platform(bl_profile) or extract_ss_id_from_socials(
+                bl_profile.get("socials")
             )
             if ss_id:
                 _cache_set(bl_id, ss_id)
             else:
                 _cache_set(bl_id, None)  # não insiste por 1h
+
+    # 1b) mesmo com vínculo direto (Steam), buscamos o perfil BL para avatar
+    #     (o score BL não traz avatar; o sync SS pode não ter rodado ainda)
+    if bl_profile is None and client is not None and resolved_direct:
+        bl_profile = await client.player_full(bl_id)
 
     # 2) fallback: busca por nome + país e casa com Player local
     if ss_id is None and client is not None and player_name:
@@ -165,5 +174,16 @@ async def resolve_bl_player(
         player.bl_resolved_at = datetime.now(timezone.utc)
         if not player.name and player_name:
             player.name = player_name
+    # Enriquecimento do perfil a partir do BL (nome/avatar/país) — padrão do
+    # PlayerImportService do AccSaber; só preenche o que o Player ainda não tem.
+    if bl_profile:
+        if not player.name:
+            player.name = bl_profile.get("name") or player_name or player.name
+        if not player.country:
+            country = str(bl_profile.get("country") or "")
+            if country and country.lower() != "not set":
+                player.country = country.upper()[:8]
+        if not player.avatar_url and bl_profile.get("avatar"):
+            player.avatar_url = bl_profile["avatar"]
     await session.flush()
     return player

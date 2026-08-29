@@ -155,6 +155,10 @@ class FakeBeatLeaderClient:
             return []
         return self.payloads
 
+    async def player_full(self, player_id: str) -> dict | None:
+        self.calls.append(f"full:{player_id}")
+        return {"id": player_id, "name": "Ren93", "country": "BR", "platform": "steam"}
+
     async def close(self):
         pass
 
@@ -211,7 +215,8 @@ async def test_sync_beatleader_resolves_and_persists(session):
     fake = FakeBeatLeaderClient([bl_raw_score(steam, "Ren93", 500000, 500000, 0.9, 1788000000)])
     stats = await sync_difficulty_scores_beatleader(session, d.id, client=fake)
     assert stats.inserted == 1
-    assert fake.calls == ["lb:222:page1"]
+    # busca scores + perfil BL para enriquecimento do player
+    assert fake.calls == ["lb:222:page1", "full:76561199113852020"]
 
     player = (await session.scalars(select(Player).where(Player.bl_id == steam))).first()
     assert player is not None and player.ss_id == steam
