@@ -137,6 +137,47 @@ def test_parse_beatleader():
     assert live.pp == pytest.approx(300.5)
 
 
+def test_parse_beatleader_real_ws_frame():
+    """Frame real do wss://sockets.api.beatleader.com/scores (2026-08-29):
+    objeto de score sem envelope, com leaderboard.song/difficulty e accuracy."""
+    raw = {
+        "id": 34224022,
+        "playerId": "350076",
+        "leaderboardId": "2f26691",
+        "baseScore": 664206,
+        "modifiedScore": 664206,
+        "accuracy": 0.8773898,
+        "pp": 0,
+        "rank": 350,
+        "modifiers": "",
+        "fullCombo": False,
+        "timepost": 1788028773,
+        "country": "US",
+        "player": {"id": "350076", "name": "PlayerX", "country": "US"},
+        "leaderboard": {
+            "id": "2f26691",
+            "song": {"hash": "c550c692f7895ba538feb404ff5f28a60a16b5cc", "name": "Microwave"},
+            "difficulty": {"id": 1371705, "value": 9, "difficultyName": "ExpertPlus"},
+        },
+    }
+    live = parse_message("beatleader", raw)
+    assert live is not None
+    assert live.source == "beatleader"
+    assert live.score_id == "34224022"
+    assert live.player_id == "350076"
+    assert live.leaderboard_id == "2f26691"
+    assert live.player_country == "US"
+    assert live.song_hash == "c550c692f7895ba538feb404ff5f28a60a16b5cc"
+    assert live.difficulty == "ExpertPlus"
+    assert live.score == 664206
+    assert live.acc == pytest.approx(0.8773898)
+    assert live.pp is None  # pp=0 no feed -> None (PP é da curva BSBR)
+    assert live.full_combo is False
+    assert live.rank == 350
+    # timepost é unix no WS do BL → time_set correto (não utcnow())
+    assert live.time_set == datetime.fromtimestamp(1788028773, tz=timezone.utc).replace(tzinfo=None)
+
+
 async def test_persist_live_score_inserts_and_updates(session):
     m = Map(hash="h" * 40, name="Mapa", status=MapStatus.RANKED, mapper="M")
     session.add(m)
@@ -318,3 +359,133 @@ async def test_recent_scores_without_redis(monkeypatch):
 
     monkeypatch.setattr(bus, "_redis", None)
     assert await recent_scores() == []
+
+
+async def test_persist_beatleader_resolves_and_matches_bl_leaderboard(session):
+    """Score BL casa com bl_leaderboard_id e o jogador é resolvido (bl_id→ss_id)."""
+    m = Map(hash="b" * 40, name="Mapa BL", status=MapStatus.RANKED, mapper="M")
+    session.add(m)
+    await session.flush()
+    d = Difficulty(
+        map_id=m.id,
+        characteristic="Standard",
+        name="ExpertPlus",
+        ss_leaderboard_id=None,
+        bl_leaderboard_id="2f26691",
+        total_stars=6.0,
+        acc_stars=1.0,
+        tech_stars=1.0,
+        speed_stars=4.0,
+    )
+    session.add(d)
+    await session.commit()
+
+    from app.services.live.messages import LiveScore
+    from app.services.beatleader_resolve import _CACHE, clear_cache
+
+    clear_cache()
+    # Steam ID (17 dígitos) → resolver direto: bl_id == ss_id
+    steam = "76561199113852020"
+    live = LiveScore(
+        source="beatleader",
+        score_id="34224022",
+        leaderboard_id="2f26691",
+        player_id=steam,
+        player_name="Ren93",
+        player_country="BR",
+        song_hash="b" * 40,
+        difficulty="ExpertPlus",
+        score=664206,
+        acc=0.877,
+        pp=None,
+        mods="",
+        full_combo=False,
+        max_score=None,
+        rank=350,
+        time_set=datetime(2026, 8, 29, 0, 0, 0),
+    )
+    outcome = await persist_live_score(session, live)
+    assert "inserted" in outcome
+    # jogador único com ss_id == bl_id (Steam)
+    player = (await session.scalars(select(Player).where(Player.bl_id == steam))).first()
+    assert player is not None
+    assert player.ss_id == steam
+    assert player.bl_resolved_at is not None
+    scores = (await session.scalars(select(Score))).all()
+    assert len(scores) == 1
+    assert scores[0].difficulty_id == d.id
+    assert scores[0].pp is not None and scores[0].pp > 0
+
+
+async def test_persist_beatleader_lower_pp_keeps_best(session):
+    """Conflito SS × BL: score BL com PP menor NÃO sobrescreve o score SS."""
+    m = Map(hash="x" * 40, name="Conflito", status=MapStatus.RANKED, mapper="M")
+    session.add(m)
+    await session.flush()
+    d = Difficulty(
+        map_id=m.id,
+        characteristic="Standard",
+        name="ExpertPlus",
+        ss_leaderboard_id="111",
+        bl_leaderboard_id="222",
+        total_stars=6.0,
+        acc_stars=1.0,
+        tech_stars=1.0,
+        speed_stars=4.0,
+    )
+    session.add(d)
+    await session.commit()
+
+    from app.services.live.messages import LiveScore
+    from app.services.beatleader_resolve import clear_cache
+
+    clear_cache()
+    steam = "76561199113852020"
+    # 1) SS primeiro (acc 0.95 → pp alto)
+    live_ss = LiveScore(
+        source="scoresaber",
+        score_id="1",
+        leaderboard_id="111",
+        player_id=steam,
+        player_name="Ren93",
+        player_country="BR",
+        song_hash=None,
+        difficulty="ExpertPlus",
+        score=950000,
+        acc=0.95,
+        pp=None,
+        mods="",
+        full_combo=True,
+        max_score=None,
+        rank=1,
+        time_set=datetime(2026, 8, 29, 1, 0, 0),
+    )
+    outcome = await persist_live_score(session, live_ss)
+    assert "inserted" in outcome
+    pp_ss = (await session.scalars(select(Score))).one().pp
+
+    # 2) BL com acc menor (0.80) → PP menor → ignorado
+    live_bl = LiveScore(
+        source="beatleader",
+        score_id="34224022",
+        leaderboard_id="222",
+        player_id=steam,
+        player_name="Ren93",
+        player_country="BR",
+        song_hash=None,
+        difficulty="ExpertPlus",
+        score=800000,
+        acc=0.80,
+        pp=None,
+        mods="",
+        full_combo=False,
+        max_score=None,
+        rank=2,
+        time_set=datetime(2026, 8, 29, 2, 0, 0),
+    )
+    outcome = await persist_live_score(session, live_bl)
+    assert outcome == {"ignored": "lower_pp"}
+    scores = (await session.scalars(select(Score))).all()
+    assert len(scores) == 1
+    assert scores[0].pp == pp_ss
+    assert scores[0].acc == pytest.approx(0.95)

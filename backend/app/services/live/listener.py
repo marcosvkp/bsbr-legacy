@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_WS_URLS = {
     "scoresaber": "wss://scoresaber.com/ws",
-    "beatleader": "wss://api.beatleader.xyz/scores/ws",
+    "beatleader": "wss://sockets.api.beatleader.com/scores",
 }
 
 MAX_BACKOFF_SECONDS = 60
@@ -73,8 +73,8 @@ class ScorefeedListener:
 
 
 def build_listeners(sources: list[str] | None = None) -> list[ScorefeedListener]:
-    """Fontes ativas: ScoreSaber sempre; BeatLeader só se habilitado (endpoint
-    atual do feed BL retorna 404 — ver Plan.md antes de religar)."""
+    """Fontes ativas: ScoreSaber sempre; BeatLeader só se habilitado
+    (wss://sockets.api.beatleader.com/scores — validado 2026-08-29)."""
     from app.core.config import get_settings
 
     settings = get_settings()

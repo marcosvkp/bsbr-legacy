@@ -13,6 +13,10 @@ class Player(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     ss_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    # Vínculo com a conta BeatLeader do mesmo jogador (resolver BL → SS).
+    # Para jogadores Steam (maioria), bl_id == ss_id == Steam ID.
+    bl_id: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
+    bl_resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     country: Mapped[str | None] = mapped_column(String(8), index=True)  # ISO 3166-1 (ex. "BR")
     avatar_url: Mapped[str | None] = mapped_column(String(512))

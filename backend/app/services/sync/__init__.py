@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.integrations.beatleader import BeatLeaderClient
 from app.integrations.scoresaber import ScoreSaberClient
 from app.models import Difficulty, Map, MapStatus, Player, Score
 from app.services.pp_engine import decompose_pp
@@ -84,6 +85,38 @@ def parse_leaderboard_score(raw: dict, max_score: int | None) -> dict | None:
         "leaderboard_rank": int(raw.get("rank") or 0) or None,
         "time_set": time_set,
         "ss_player_pp": float(info.get("pp") or 0) or None,
+    }
+
+
+def parse_beatleader_score(raw: dict) -> dict | None:
+    """Extrai campos relevantes de um score do BeatLeader; None se inválido/NF.
+
+    O BL já entrega `accuracy` (0..1) — o PP é SEMPRE do motor BSBR, nunca o
+    `pp` do payload. O vínculo com o jogador é via `resolve_bl_player`.
+    """
+    modifiers = raw.get("modifiers") or ""
+    if "NF" in modifiers:
+        return None
+    base = int(raw.get("baseScore") or 0)
+    if base <= 0:
+        return None
+    acc = raw.get("accuracy")
+    if acc is not None and float(acc) == 0.0:
+        acc = None
+    timepost = raw.get("timepost")
+    if timepost:
+        time_set = datetime.fromtimestamp(int(timepost), tz=timezone.utc).replace(tzinfo=None)
+    else:
+        time_set = datetime.utcnow()
+    return {
+        "bl_player_id": str(raw.get("playerId") or ""),
+        "player_name": str((raw.get("player") or {}).get("name") or raw.get("playerName") or "") or None,
+        "score": int(raw.get("modifiedScore") or base),
+        "acc": float(acc) if acc is not None else None,
+        "modifiers": modifiers or None,
+        "full_combo": bool(raw.get("fullCombo") or raw.get("fc")),
+        "leaderboard_rank": int(raw.get("rank") or 0) or None,
+        "time_set": time_set,
     }
 
 
@@ -215,6 +248,136 @@ async def sync_difficulty_scores(
             await client.close()
 
 
+async def sync_difficulty_scores_beatleader(
+    session: AsyncSession,
+    difficulty_id: int,
+    *,
+    client: BeatLeaderClient | None = None,
+    country: str = "BR",
+    max_pages: int | None = None,
+) -> SyncStats:
+    """Busca e persiste scores do BeatLeader de uma dificuldade rankeada.
+
+    Cada score é resolvido para a conta ScoreSaber do jogador (bl_id → ss_id).
+    Conflito SS × BL na mesma dificuldade: fica o score de maior PP do BSBR.
+    """
+    from app.services.beatleader_resolve import resolve_bl_player
+
+    own_client = client is None
+    client = client or BeatLeaderClient()
+    stats = SyncStats(difficulty_id=difficulty_id)
+    try:
+        difficulty = await session.get(Difficulty, difficulty_id)
+        if difficulty is None:
+            stats.errors.append(f"difficulty {difficulty_id} não encontrada")
+            return stats
+        if not difficulty.bl_leaderboard_id:
+            stats.errors.append(f"difficulty {difficulty_id} sem bl_leaderboard_id")
+            return stats
+        if difficulty.total_stars is None:
+            stats.errors.append(f"difficulty {difficulty_id} sem total_stars")
+            return stats
+
+        raw_scores: list[dict] = []
+        page = 1
+        while True:
+            batch = await client.leaderboard_scores(
+                difficulty.bl_leaderboard_id, country=country, page=page, count=100
+            )
+            if not batch:
+                break
+            raw_scores.extend(batch)
+            if max_pages is not None and page >= max_pages:
+                break
+            if len(batch) < 100:
+                break
+            page += 1
+        stats.fetched = len(raw_scores)
+
+        parsed: list[dict] = []
+        for raw in raw_scores:
+            item = parse_beatleader_score(raw)
+            if item is None:
+                stats.skipped_nf += 1
+                continue
+            parsed.append(item)
+
+        # Resolve/cria players pelo vínculo BL → SS.
+        players_by_bl: dict[str, Player] = {}
+        for item in parsed:
+            bl_id = item["bl_player_id"]
+            if bl_id in players_by_bl:
+                continue
+            player = await resolve_bl_player(
+                session, bl_id, client=client,
+                player_name=item["player_name"], player_country=country,
+            )
+            players_by_bl[bl_id] = player
+
+        total = float(difficulty.total_stars)
+        share_acc, share_tech, share_speed = _shares_of(difficulty)
+
+        existing_rows = {
+            (s.player_id, s.difficulty_id): s
+            for s in (
+                await session.scalars(select(Score).where(Score.difficulty_id == difficulty_id))
+            ).all()
+        }
+
+        for item in parsed:
+            player = players_by_bl[item["bl_player_id"]]
+            if player.avatar_url is None and item.get("player_name"):
+                # avatar não vem no score BL; mantém o do sync SS se existir
+                pass
+            sub = decompose_pp(
+                total,
+                (item["acc"] or 0.0) * 100,
+                share_acc=share_acc,
+                share_tech=share_tech,
+                share_speed=share_speed,
+            )
+            row = existing_rows.get((player.id, difficulty_id))
+            new_pp = sub["pp_total"]
+            if row is not None and new_pp is not None and row.pp is not None:
+                # conflito SS × BL: fica o de maior PP do BSBR
+                if new_pp < row.pp - 0.001:
+                    continue
+            if row is None:
+                row = Score(player_id=player.id, difficulty_id=difficulty_id, time_set=item["time_set"])
+                session.add(row)
+                existing_rows[(player.id, difficulty_id)] = row
+                stats.inserted += 1
+            else:
+                stats.updated += 1
+                row.time_set = item["time_set"]
+            row.score = item["score"]
+            row.acc = item["acc"]
+            row.modifiers = item["modifiers"]
+            row.full_combo = item["full_combo"]
+            row.leaderboard_rank = item["leaderboard_rank"]
+            row.pp = new_pp
+            row.pp_acc = sub["pp_acc"]
+            row.pp_tech = sub["pp_tech"]
+            row.pp_speed = sub["pp_speed"]
+
+        # 1 score por (player, difficulty) — remove os anteriores
+        await session.flush()
+        for (pid, did), row in existing_rows.items():
+            await session.execute(
+                delete(Score).where(
+                    Score.player_id == pid,
+                    Score.difficulty_id == did,
+                    Score.id != row.id,
+                )
+            )
+
+        await session.commit()
+        return stats
+    finally:
+        if own_client:
+            await client.close()
+
+
 def _shares_of(difficulty: Difficulty) -> tuple[float, float, float]:
     total_share = (
         float(difficulty.acc_stars or 0.0)
@@ -237,8 +400,14 @@ async def sync_all_ranked_difficulties(
     country: str = "BR",
     max_pages: int | None = None,
 ) -> list[SyncStats]:
-    """Sync completo dos mapas rankeados (usado pelo batch semanal)."""
+    """Sync completo dos mapas rankeados (usado pelo batch semanal).
+
+    Roda ScoreSaber (por ss_leaderboard_id) e BeatLeader (por bl_leaderboard_id,
+    quando presente). No mesmo (player, difficulty), o conflito SS × BL é
+    resolvido no upsert de cada fonte: fica o score de maior PP do BSBR.
+    """
     client = ScoreSaberClient()
+    bl_client = BeatLeaderClient()
     try:
         rows = (
             (
@@ -246,24 +415,35 @@ async def sync_all_ranked_difficulties(
                     select(Difficulty)
                     .join(Map, Difficulty.map_id == Map.id)
                     .where(Map.status == MapStatus.RANKED)
-                    .where(Difficulty.ss_leaderboard_id.is_not(None))
                     .where(Difficulty.is_ranked.is_(True))
                 )
             )
             .scalars()
             .all()
         )
-        results = []
+        results: list[SyncStats] = []
         for difficulty in rows:
-            results.append(
-                await sync_difficulty_scores(
-                    session,
-                    difficulty.id,
-                    client=client,
-                    country=country,
-                    max_pages=max_pages,
+            if difficulty.ss_leaderboard_id:
+                results.append(
+                    await sync_difficulty_scores(
+                        session,
+                        difficulty.id,
+                        client=client,
+                        country=country,
+                        max_pages=max_pages,
+                    )
                 )
-            )
+            if difficulty.bl_leaderboard_id:
+                results.append(
+                    await sync_difficulty_scores_beatleader(
+                        session,
+                        difficulty.id,
+                        client=bl_client,
+                        country=country,
+                        max_pages=max_pages,
+                    )
+                )
         return results
     finally:
         await client.close()
+        await bl_client.close()

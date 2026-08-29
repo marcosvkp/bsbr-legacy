@@ -56,8 +56,15 @@ class LiveScore:
 
 
 def _parse_time(raw: str | None) -> datetime | None:
+    """Aceita ISO 8601 (ScoreSaber) OU unix timestamp (BeatLeader timepost)."""
     if not raw:
         return None
+    # unix timestamp (ex. "1788028773")
+    if raw.isdigit():
+        try:
+            return datetime.fromtimestamp(int(raw), tz=timezone.utc).replace(tzinfo=None)
+        except (OverflowError, OSError, ValueError):
+            return None
     try:
         dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
         return dt.astimezone(timezone.utc).replace(tzinfo=None)
@@ -163,10 +170,18 @@ def parse_scoresaber_message(msg: dict) -> LiveScore | None:
 
 
 def parse_beatleader_message(msg: dict) -> LiveScore | None:
-    """wss://api.beatleader.xyz/scores/ws — {"command":"score","data":{...}}."""
-    if msg.get("command") != "score":
-        return None
-    data = msg.get("data") or {}
+    """wss://sockets.api.beatleader.com/scores.
+
+    Formato real observado (2026-08-29): o frame é o PRÓPRIO objeto de score
+    (sem envelope "command"), com os campos do ScoreResponse do BeatLeader:
+      {id, playerId, leaderboardId, baseScore, modifiedScore, accuracy (0..1),
+       modifiers, fullCombo, rank, timepost (unix), country, player: {...},
+       leaderboard: {song: {hash, name}, difficulty: {...}}}
+    Aceita o formato antigo {"command":"score","data":{...}} como fallback.
+    """
+    data = msg
+    if msg.get("command") == "score" and isinstance(msg.get("data"), dict):
+        data = msg["data"]
     score_id = str(data.get("id") or "")
     player_id = str(data.get("playerId") or "")
     leaderboard_id = str(data.get("leaderboardId") or "")
@@ -176,24 +191,32 @@ def parse_beatleader_message(msg: dict) -> LiveScore | None:
     player = data.get("player") or {}
     leaderboard = data.get("leaderboard") or {}
     song = leaderboard.get("song") or {}
-    max_score = data.get("maxScore") or leaderboard.get("maxScore")
+    difficulty = leaderboard.get("difficulty") or {}
+    acc = data.get("accuracy")
+    if acc is None:
+        acc = data.get("acc")
+    # accuracy do BL é 0..1; alguns eventos vêm com accuracy 0 (score inválido)
+    if acc is not None and float(acc) == 0.0:
+        acc = None
 
-    time_set = _parse_time(data.get("timepost") or data.get("timeSet")) or datetime.utcnow()
+    time_set = _parse_time(str(data.get("timepost") or data.get("timeset") or ""))
+    if time_set is None:
+        time_set = datetime.utcnow()
     return LiveScore(
         source="beatleader",
         score_id=score_id,
         leaderboard_id=leaderboard_id,
         player_id=player_id,
         player_name=data.get("playerName") or player.get("name"),
-        player_country=player.get("country") or data.get("playerCountry"),
+        player_country=data.get("country") or player.get("country") or data.get("playerCountry"),
         song_hash=song.get("hash") or data.get("songHash"),
-        difficulty=data.get("difficulty"),
-        score=int(data.get("score") or 0),
-        acc=float(data["acc"]) if data.get("acc") is not None else None,
-        pp=float(data["pp"]) if data.get("pp") is not None else None,
-        mods=str(data.get("mods") or data.get("modifiers") or ""),
-        full_combo=bool(data.get("fc") or data.get("fullCombo")),
-        max_score=int(max_score) if max_score else None,
+        difficulty=data.get("difficulty") or difficulty.get("difficultyName"),
+        score=int(data.get("modifiedScore") or data.get("baseScore") or data.get("score") or 0),
+        acc=float(acc) if acc is not None else None,
+        pp=float(data["pp"]) if data.get("pp") is not None and float(data["pp"]) > 0 else None,
+        mods=str(data.get("modifiers") or data.get("mods") or ""),
+        full_combo=bool(data.get("fullCombo") or data.get("fc")),
+        max_score=None,
         rank=data.get("rank"),
         time_set=time_set,
         raw=data,

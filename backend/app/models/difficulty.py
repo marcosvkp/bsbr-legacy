@@ -35,6 +35,9 @@ class Difficulty(Base):
     model_version: Mapped[str | None] = mapped_column(String(32))
     # Leaderboard correspondente no ScoreSaber (fonte dos scores)
     ss_leaderboard_id: Mapped[str | None] = mapped_column(String(32), index=True)
+    # Leaderboard correspondente no BeatLeader (preenchido na qualificação;
+    # usado pelo sync batch BL e pelo persist do score ao vivo BL).
+    bl_leaderboard_id: Mapped[str | None] = mapped_column(String(64), index=True)
     ranked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     is_ranked: Mapped[bool] = mapped_column(default=True)
 

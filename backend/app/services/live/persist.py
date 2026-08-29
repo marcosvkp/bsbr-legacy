@@ -1,8 +1,13 @@
 """Persistência de scores ao vivo — mesmo padrão de upsert do sync.
 
 Um score ao vivo só é persistido se a dificuldade for conhecida no banco
-(match por ss_leaderboard_id). Players desconhecidos são criados com o nome
-do payload (o sync completo preenche country/avatar depois).
+(match por ss_leaderboard_id ou bl_leaderboard_id). Players do BeatLeader são
+resolvidos para a conta ScoreSaber antes do upsert (bl_id → ss_id), evitando
+duplicar o jogador.
+
+Conflito SS × BL na mesma dificuldade: fica o score de MAIOR PP do BSBR
+(o ranking usa o PP do motor BSBR; o score "perdido" é ignorado, sem
+sobrescrever um melhor já existente).
 """
 
 from __future__ import annotations
@@ -22,6 +27,20 @@ from .messages import LiveScore
 logger = logging.getLogger(__name__)
 
 
+def _compute_pp(difficulty: Difficulty, live: LiveScore) -> dict:
+    """PP calculado como no sync (sub-stars da dificuldade); fallback pp do feed."""
+    if difficulty.total_stars and live.acc is not None:
+        shares = _shares_of(difficulty)
+        return decompose_pp(
+            float(difficulty.total_stars),
+            live.acc * 100,
+            share_acc=shares[0],
+            share_tech=shares[1],
+            share_speed=shares[2],
+        )
+    return {"pp_total": live.pp, "pp_acc": None, "pp_tech": None, "pp_speed": None}
+
+
 async def persist_live_score(session: AsyncSession, live: LiveScore) -> dict | None:
     """Upsert de um score ao vivo; None se fora do escopo do feed.
 
@@ -37,7 +56,13 @@ async def persist_live_score(session: AsyncSession, live: LiveScore) -> dict | N
             select(Difficulty)
             .join(Map, Difficulty.map_id == Map.id)
             .options(joinedload(Difficulty.map))
-            .where(Difficulty.ss_leaderboard_id == live.leaderboard_id)
+            .where(
+                (
+                    Difficulty.ss_leaderboard_id == live.leaderboard_id
+                    if live.source == "scoresaber"
+                    else Difficulty.bl_leaderboard_id == live.leaderboard_id
+                )
+            )
             .where(Map.status == MapStatus.RANKED)
             .where(Difficulty.is_ranked.is_(True))
         )
@@ -45,17 +70,28 @@ async def persist_live_score(session: AsyncSession, live: LiveScore) -> dict | N
     if difficulty is None:
         return {"ignored": "not_ranked"}
 
-    player = (
-        await session.scalars(select(Player).where(Player.ss_id == live.player_id))
-    ).first()
-    if player is None:
-        player = Player(
-            ss_id=live.player_id,
-            name=live.player_name or live.player_id,
-            country=live.player_country,
+    # Players do BeatLeader passam pelo resolver (bl_id → ss_id) antes do upsert.
+    if live.source == "beatleader":
+        from app.services.beatleader_resolve import resolve_bl_player
+
+        player = await resolve_bl_player(
+            session,
+            live.player_id,
+            player_name=live.player_name,
+            player_country=live.player_country,
         )
-        session.add(player)
-        await session.flush()
+    else:
+        player = (
+            await session.scalars(select(Player).where(Player.ss_id == live.player_id))
+        ).first()
+        if player is None:
+            player = Player(
+                ss_id=live.player_id,
+                name=live.player_name or live.player_id,
+                country=live.player_country,
+            )
+            session.add(player)
+            await session.flush()
 
     time_set = live.time_set
     existing = (
@@ -66,6 +102,13 @@ async def persist_live_score(session: AsyncSession, live: LiveScore) -> dict | N
             )
         )
     ).first()
+
+    sub = _compute_pp(difficulty, live)
+    new_pp = sub.get("pp_total")
+    if existing is not None and new_pp is not None and existing.pp is not None:
+        # Conflito SS × BL: mantém o de maior PP do BSBR (1 score por jogador).
+        if new_pp < existing.pp - 0.001:
+            return {"ignored": "lower_pp"}
 
     is_new = existing is None
     if is_new:
@@ -81,22 +124,10 @@ async def persist_live_score(session: AsyncSession, live: LiveScore) -> dict | N
     existing.full_combo = live.full_combo
     existing.leaderboard_rank = live.rank
 
-    # PP calculado como no sync (sub-stars da dificuldade); fallback pp do feed
-    if difficulty.total_stars and live.acc is not None:
-        shares = _shares_of(difficulty)
-        sub = decompose_pp(
-            float(difficulty.total_stars),
-            live.acc * 100,
-            share_acc=shares[0],
-            share_tech=shares[1],
-            share_speed=shares[2],
-        )
-        existing.pp = sub["pp_total"]
-        existing.pp_acc = sub["pp_acc"]
-        existing.pp_tech = sub["pp_tech"]
-        existing.pp_speed = sub["pp_speed"]
-    elif live.pp is not None:
-        existing.pp = live.pp
+    existing.pp = sub.get("pp_total")
+    existing.pp_acc = sub.get("pp_acc")
+    existing.pp_tech = sub.get("pp_tech")
+    existing.pp_speed = sub.get("pp_speed")
 
     # 1 score por (player, difficulty): remove os anteriores do mesmo jogador.
     # flush antes garante id real do score atual (Score.id != None vira

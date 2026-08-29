@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     # APIs externas
     scoresaber_base_url: str = "https://scoresaber.com/api"
     beatsaver_base_url: str = "https://api.beatsaver.com"
-    beatleader_base_url: str = "https://api.beatleader.com"
+    beatleader_base_url: str = "https://api.beatleader.xyz"
 
     # Rate limit ScoreSaber observado no legado: 350 req/min
     scoresaber_max_calls: int = 350
@@ -33,9 +33,9 @@ class Settings(BaseSettings):
     # Integrações
     discord_webhook_url: str | None = None
 
-    # Scorefeed ao vivo (WebSocket). BeatLeader desligado até o endpoint atual
-    # do feed ser descoberto (wss://api.beatleader.xyz/scores/ws retorna 404 hoje)
-    live_beatleader_enabled: bool = False
+    # Scorefeed ao vivo (WebSocket). BeatLeader habilitado a partir do deploy
+    # do resolver (wss://sockets.api.beatleader.com/scores validado 2026-08-29)
+    live_beatleader_enabled: bool = True
 
     # Admin: OAuth Discord quando configurado; X-Admin-Token como fallback
     admin_token: str | None = None

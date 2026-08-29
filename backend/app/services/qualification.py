@@ -95,6 +95,24 @@ async def qualify_source(
     except Exception:
         ss_by_diff = {}
 
+    # Preenche bl_leaderboard_id automaticamente (opcional): busca os
+    # leaderboards do BeatLeader para o hash e mapeia por difficultyName.
+    bl_by_diff: dict[str, str] = {}
+    try:
+        from app.integrations.beatleader import BeatLeaderClient
+
+        client = BeatLeaderClient()
+        try:
+            bl_entries = await client.leaderboards_by_hash(analysis.hash or "")
+        finally:
+            await client.close()
+        for entry in bl_entries:
+            diff_name = (entry.get("difficulty") or {}).get("difficultyName")
+            if diff_name and str(entry.get("id")):
+                bl_by_diff.setdefault(diff_name, str(entry["id"]))
+    except Exception:
+        bl_by_diff = {}
+
     diffs_payload = []
     for d in analysis.difficulties:
         existing = (
@@ -134,6 +152,9 @@ async def qualify_source(
                 existing.ss_leaderboard_id = ss_info["id"]
             if not existing.max_score and ss_info.get("max_score"):
                 existing.max_score = int(ss_info["max_score"])
+        bl_id = bl_by_diff.get(d.difficulty)
+        if bl_id and not existing.bl_leaderboard_id:
+            existing.bl_leaderboard_id = bl_id
         diffs_payload.append(existing)
 
     await session.commit()
@@ -158,6 +179,7 @@ async def qualify_source(
                 "speed_stars": d.speed_stars,
                 "style_tags": d.style_tags,
                 "ss_leaderboard_id": d.ss_leaderboard_id,
+                "bl_leaderboard_id": d.bl_leaderboard_id,
                 "nps": d.features.get("nps") if d.features else None,
                 "notes": d.features.get("note_count") or d.features.get("notes") if d.features else None,
             }
