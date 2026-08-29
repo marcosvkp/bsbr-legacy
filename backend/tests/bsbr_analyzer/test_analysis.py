@@ -166,6 +166,45 @@ def test_analyze_folder_v4_info(tmp_path):
     assert analysis.difficulties[0].total_stars > 0
 
 
+def test_parse_v41_split_arrays():
+    """Beatmap 4.1.0: tempo em colorNotes[b] + data em colorNotesData com
+    estado base (índice 0) e deltas parciais aplicados na ordem; notas sem
+    'i' herdam o estado corrente."""
+    from bsbr_analyzer.parser.beatmap import Beatmap
+
+    data = {
+        "version": "4.1.0",
+        "colorNotes": [
+            {"b": 1.0, "i": 1},
+            {"b": 2.0},
+            {"b": 3.0, "i": 1},
+            {"b": 4.0, "i": 2},
+        ],
+        "colorNotesData": [
+            {"x": 1, "c": 0, "d": 1},  # estado base (índice 0 nunca é referenciado)
+            {"x": 3, "y": 1, "c": 1, "d": 5},
+            {"x": 1, "y": 2},
+        ],
+        "bombNotes": [{"b": 5.0, "i": 1}],
+        "bombNotesData": [{"x": 0}, {"x": 2}],
+        "obstacles": [{"b": 6.0, "i": 1}],
+        "obstaclesData": [{"x": 0, "d": 1.0, "w": 1, "h": 1}, {"x": 1, "w": 2, "h": 3, "d": 4.0}],
+    }
+    beatmap = Beatmap("4.1.0")
+    beatmap.parse_json(data)
+
+    assert [(n.b, n.x, n.y, int(n.c), int(n.d)) for n in beatmap.notes] == [
+        (1.0, 3, 1, 1, 5),
+        (2.0, 3, 1, 1, 5),  # sem 'i' → herda estado da nota anterior
+        (3.0, 3, 1, 1, 5),  # reaplica delta do índice 1
+        (4.0, 1, 2, 1, 5),  # delta parcial: só x/y mudam
+    ]
+    assert [(b.b, b.x, b.y) for b in beatmap.bombs] == [(5.0, 2, 0)]
+    assert [(o.b, o.x, o.y, o.w, o.h, o.d) for o in beatmap.obstacles] == [
+        (6.0, 1, 0, 2, 3, 4.0)
+    ]
+
+
 def test_corrupt_difficulty_file_skipped(tmp_path):
     _write_map(tmp_path, SPEED_INFO_V2, make_speed_map_v2())
     (tmp_path / "Expert.dat").write_text("{invalid json")
