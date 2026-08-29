@@ -16,7 +16,7 @@ from app.services import og_image
 router = APIRouter()
 
 PNG = "image/png"
-CACHE = "public, max-age=3600"
+CACHE = "public, max-age=120"
 
 
 def _png(data: bytes) -> Response:
@@ -61,7 +61,11 @@ async def og_map(map_hash: str, db: AsyncSession = Depends(get_db)) -> Response:
     top = (
         await db.scalars(
             select(Difficulty)
-            .where(Difficulty.map_id == map_.id, Difficulty.characteristic == "Standard")
+            .where(
+                Difficulty.map_id == map_.id,
+                Difficulty.characteristic == "Standard",
+                Difficulty.is_ranked.is_(True),
+            )
             .order_by(Difficulty.total_stars.desc().nulls_last())
             .limit(1)
         )

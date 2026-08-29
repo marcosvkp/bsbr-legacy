@@ -36,6 +36,7 @@ class Difficulty(Base):
     # Leaderboard correspondente no ScoreSaber (fonte dos scores)
     ss_leaderboard_id: Mapped[str | None] = mapped_column(String(32), index=True)
     ranked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    is_ranked: Mapped[bool] = mapped_column(default=True)
 
     map: Mapped["Map"] = relationship(back_populates="difficulties")  # noqa: F821
     scores: Mapped[list["Score"]] = relationship(  # noqa: F821

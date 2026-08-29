@@ -7,7 +7,7 @@
 
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -24,6 +24,11 @@ from app.services.reweight.service import (
 )
 
 from .oauth import admin_session_ok
+
+def _escape_like(value: str) -> str:
+    """Escapa curingas do LIKE para busca literal (%, _, \\)."""
+    return value.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
+
 
 router = APIRouter(prefix="/admin")
 
@@ -47,11 +52,18 @@ class QualifyRequest(BaseModel):
     source: str = ""  # id do BeatSaver ou hash de 40 hex (obrigatório no /maps/qualify)
     # Ajuste manual de estrelas por dificuldade (ex.: {"ExpertPlus": 8.5})
     stars_override: dict[str, float] | None = None
+    # Dificuldades inviáveis: não entram no pool rankeado (is_ranked=False)
+    excluded_difficulties: list[str] = []
 
 
 class ApproveRequest(BaseModel):
     ss_leaderboard_ids: dict[str, str]  # difficulty name -> leaderboard id ScoreSaber
     reviewer: str = "staff"
+    excluded_difficulties: list[str] = []
+
+
+class DifficultyRankRequest(BaseModel):
+    ranked: bool = True
 
 
 @router.post("/maps/qualify")
@@ -83,11 +95,13 @@ async def list_candidates(
             await db.execute(
                 select(Map)
                 .where(Map.status.in_([MapStatus.CANDIDATE, MapStatus.QUALIFIED]))
+                .options(joinedload(Map.difficulties))
                 .order_by(Map.id.desc())
                 .limit(50)
             )
         )
         .scalars()
+        .unique()
         .all()
     )
     return {
@@ -102,9 +116,79 @@ async def list_candidates(
                 "cover_url": m.cover_url,
                 "submitted_by": m.submitted_by,
                 "created_at": m.created_at.isoformat() if m.created_at else None,
+                "difficulties": [
+                    {
+                        "id": d.id,
+                        "name": d.name,
+                        "total_stars": d.total_stars,
+                        "ss_leaderboard_id": d.ss_leaderboard_id,
+                        "is_ranked": d.is_ranked,
+                    }
+                    for d in m.difficulties
+                ],
             }
             for m in rows
         ],
+    }
+
+
+@router.get("/maps/ranked")
+async def list_ranked_maps(
+    q: str | None = Query(None, max_length=80, description="Busca por nome do mapa ou mapper"),
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    _: None = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Mapas rankeados com dificuldades — gerenciar quais continuam no pool."""
+    filters = [Map.status == MapStatus.RANKED]
+    if q:
+        pattern = f"%{_escape_like(q)}%"
+        filters.append(
+            or_(
+                Map.name.ilike(pattern, escape="\\"),
+                Map.mapper.ilike(pattern, escape="\\"),
+            )
+        )
+    total = (await db.execute(select(func.count()).select_from(Map).where(*filters))).scalar_one()
+    rows = (
+        (
+            await db.execute(
+                select(Map)
+                .where(*filters)
+                .options(joinedload(Map.difficulties))
+                .order_by(Map.created_at.desc().nulls_last(), Map.id.desc())
+                .offset(offset)
+                .limit(limit)
+            )
+        )
+        .scalars()
+        .unique()
+        .all()
+    )
+    return {
+        "items": [
+            {
+                "id": m.id,
+                "hash": m.hash,
+                "name": m.name,
+                "mapper": m.mapper,
+                "bpm": m.bpm,
+                "cover_url": m.cover_url,
+                "difficulties": [
+                    {
+                        "id": d.id,
+                        "name": d.name,
+                        "total_stars": d.total_stars,
+                        "is_ranked": d.is_ranked,
+                    }
+                    for d in m.difficulties
+                    if d.characteristic == "Standard"
+                ],
+            }
+            for m in rows
+        ],
+        "total": total,
     }
 
 
@@ -126,24 +210,27 @@ async def qualify_map(
     if m.status != MapStatus.CANDIDATE:
         raise HTTPException(status_code=422, detail=f"status atual: {m.status.value}")
 
-    override = (req or QualifyRequest(source="")).stars_override or {}
-    if override:
-        difficulties = (
-            (await db.scalars(select(Difficulty).where(Difficulty.map_id == map_id))).all()
-        )
-        for d in difficulties:
-            if d.name not in override:
-                continue
-            nova = float(override[d.name])
-            if nova <= 0:
-                continue
-            old = float(d.total_stars or 0.0)
-            if old > 0 and nova != old:
-                ratio = nova / old
-                d.acc_stars = round((d.acc_stars or 0.0) * ratio, 2)
-                d.tech_stars = round((d.tech_stars or 0.0) * ratio, 2)
-                d.speed_stars = round((d.speed_stars or 0.0) * ratio, 2)
-            d.total_stars = round(nova, 2)
+    req = req or QualifyRequest(source="")
+    override = req.stars_override or {}
+    excluded = set(req.excluded_difficulties)
+    difficulties = (await db.scalars(select(Difficulty).where(Difficulty.map_id == map_id))).all()
+    for d in difficulties:
+        if d.name in excluded:
+            d.is_ranked = False
+            continue
+        d.is_ranked = True
+        if d.name not in override:
+            continue
+        nova = float(override[d.name])
+        if nova <= 0:
+            continue
+        old = float(d.total_stars or 0.0)
+        if old > 0 and nova != old:
+            ratio = nova / old
+            d.acc_stars = round((d.acc_stars or 0.0) * ratio, 2)
+            d.tech_stars = round((d.tech_stars or 0.0) * ratio, 2)
+            d.speed_stars = round((d.speed_stars or 0.0) * ratio, 2)
+        d.total_stars = round(nova, 2)
 
     m.status = MapStatus.QUALIFIED
     await db.commit()
@@ -178,12 +265,51 @@ async def approve(
 ) -> dict:
     try:
         m = await approve_map(
-            db, map_id, ss_leaderboard_ids=req.ss_leaderboard_ids, reviewer=req.reviewer
+            db,
+            map_id,
+            ss_leaderboard_ids=req.ss_leaderboard_ids,
+            reviewer=req.reviewer,
+            excluded_difficulties=req.excluded_difficulties,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     await cache.invalidate_prefix("maps:")
     return {"id": m.id, "hash": m.hash, "status": m.status.value}
+
+
+@router.post("/maps/{map_id}/difficulties/{difficulty_id}/rank")
+async def set_difficulty_rank(
+    map_id: int,
+    difficulty_id: int,
+    req: DifficultyRankRequest,
+    _: None = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Ativa/desativa uma dificuldade no pool rankeado (is_ranked).
+
+    Dificuldades desativadas deixam de contar para ranking, reweight,
+    playlists e leaderboards; o mapa permanece com o status atual.
+    """
+    d = (
+        await db.scalars(
+            select(Difficulty).where(Difficulty.id == difficulty_id, Difficulty.map_id == map_id)
+        )
+    ).first()
+    if d is None:
+        raise HTTPException(status_code=404, detail="dificuldade não encontrada")
+    d.is_ranked = req.ranked
+    if not req.ranked:
+        d.ss_leaderboard_id = None
+        d.ranked_at = None
+    await db.commit()
+    await cache.invalidate_prefix("maps:")
+    await cache.invalidate_prefix("map:")
+    return {
+        "map_id": map_id,
+        "difficulty_id": difficulty_id,
+        "name": d.name,
+        "is_ranked": d.is_ranked,
+    }
 
 
 # ── Reweight ───────────────────────────────────────────────────────────────

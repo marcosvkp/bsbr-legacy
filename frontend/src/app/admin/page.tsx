@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, getJson, postJson } from "@/lib/api";
 import type {
   AdminBatchItem,
   AdminBatchesResponse,
   AdminCandidate,
+  AdminRankedMap,
   BatchStats,
   QualifyPreviewResponse,
   ReweightPreviewResponse,
@@ -78,6 +79,15 @@ export default function AdminPage() {
   const [approveLoading, setApproveLoading] = useState(false);
   const [approveError, setApproveError] = useState<string | null>(null);
   const [approveSuccess, setApproveSuccess] = useState<string | null>(null);
+  const [qualifyExcluded, setQualifyExcluded] = useState<string[]>([]);
+  const [excludedByMap, setExcludedByMap] = useState<Record<number, string[]>>({});
+  const [rankToggling, setRankToggling] = useState<{ mapId: number; diffId: number } | null>(null);
+  const [rankedMaps, setRankedMaps] = useState<AdminRankedMap[] | null>(null);
+  const [rankedLoading, setRankedLoading] = useState(false);
+  const [rankedError, setRankedError] = useState<string | null>(null);
+  const [rankedQuery, setRankedQuery] = useState("");
+  const [rankedTotal, setRankedTotal] = useState(0);
+  const rankedDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [rejectLoading, setRejectLoading] = useState<number | null>(null);
   const [rejectError, setRejectError] = useState<string | null>(null);
 
@@ -168,6 +178,13 @@ export default function AdminPage() {
         headers: { "X-Admin-Token": activeToken },
       });
       setCandidates(data.items);
+      setExcludedByMap((prev) => {
+        const next: Record<number, string[]> = { ...prev };
+        for (const item of data.items) {
+          next[item.id] = item.difficulties.filter((d) => !d.is_ranked).map((d) => d.name);
+        }
+        return next;
+      });
     } catch (cause) {
       if (!(cause instanceof ApiError && cause.status === 403)) {
         setCandidatesError(
@@ -176,6 +193,48 @@ export default function AdminPage() {
       }
     }
   }, []);
+
+  const loadRankedMaps = useCallback(
+    async (
+      activeToken: string,
+      opts: { q?: string; offset?: number; append?: boolean } = {},
+    ) => {
+      setRankedLoading(true);
+      setRankedError(null);
+      try {
+        const params = new URLSearchParams();
+        const q = (opts.q ?? "").trim();
+        if (q) params.set("q", q);
+        params.set("limit", "50");
+        params.set("offset", String(opts.offset ?? 0));
+        const data = await getJson<{ items: AdminRankedMap[]; total: number }>(
+          `/admin/maps/ranked?${params.toString()}`,
+          { headers: { "X-Admin-Token": activeToken } },
+        );
+        setRankedMaps((prev) => (opts.append ? [...(prev ?? []), ...data.items] : data.items));
+        setRankedTotal(data.total);
+      } catch (cause) {
+        if (!(cause instanceof ApiError && cause.status === 403)) {
+          setRankedError(
+            cause instanceof ApiError
+              ? cause.message
+              : "Falha de rede ao carregar mapas rankeados.",
+          );
+        }
+      } finally {
+        setRankedLoading(false);
+      }
+    },
+    [],
+  );
+
+  const onRankedSearch = (value: string) => {
+    setRankedQuery(value);
+    if (rankedDebounceRef.current) clearTimeout(rankedDebounceRef.current);
+    rankedDebounceRef.current = setTimeout(() => {
+      void loadRankedMaps(token ?? "", { q: value });
+    }, 300);
+  };
 
   // Restaura token do sessionStorage e carrega a fila uma vez, fora do
   // caminho síncrono do efeito (react-hooks/set-state-in-effect).
@@ -188,6 +247,7 @@ export default function AdminPage() {
       void loadSuggestions(stored);
       void loadBatches(stored);
       void loadCandidates(stored);
+      void loadRankedMaps(stored);
     }, 0);
     return () => clearTimeout(id);
   }, [loadSuggestions, loadBatches, loadCandidates]);
@@ -206,6 +266,7 @@ export default function AdminPage() {
     void loadSuggestions(trimmed);
     void loadBatches(trimmed);
     void loadCandidates(trimmed);
+    void loadRankedMaps(trimmed);
   }
 
   async function act(suggestion: ReweightSuggestion, action: "apply" | "reject") {
@@ -273,6 +334,9 @@ export default function AdminPage() {
         { headers: { "X-Admin-Token": token } },
       );
       setQualifyPreview(preview);
+      setQualifyExcluded(
+        preview.difficulties.filter((d) => !d.is_ranked).map((d) => d.name),
+      );
       setStarsOverride(
         Object.fromEntries(
           preview.difficulties.map((d) => [
@@ -335,7 +399,7 @@ export default function AdminPage() {
       }
       const result = await postJson<{ id: number; status: string }>(
         `/admin/maps/${qualifyPreview.map.id}/qualify`,
-        { stars_override: overrides },
+        { stars_override: overrides, excluded_difficulties: qualifyExcluded },
         { headers: { "X-Admin-Token": token } },
       );
       setQueueSuccess(
@@ -392,7 +456,11 @@ export default function AdminPage() {
     try {
       const result = await postJson<{ id: number; status: string }>(
         `/admin/maps/${mapId}/approve`,
-        { ss_leaderboard_ids: {}, reviewer: "staff" },
+        {
+          ss_leaderboard_ids: {},
+          reviewer: "staff",
+          excluded_difficulties: excludedByMap[mapId] ?? [],
+        },
         { headers: { "X-Admin-Token": token } },
       );
       setApproveSuccess(
@@ -409,6 +477,46 @@ export default function AdminPage() {
       }
     } finally {
       setApproveLoading(false);
+    }
+  }
+
+  function setCandExcluded(mapId: number, name: string, excluded: boolean) {
+    setExcludedByMap((prev) => {
+      const current = new Set(prev[mapId] ?? []);
+      if (excluded) current.add(name);
+      else current.delete(name);
+      return { ...prev, [mapId]: [...current] };
+    });
+  }
+
+  async function toggleDifficultyRank(
+    mapId: number,
+    diff: { id: number; name: string; total_stars: number | null; is_ranked: boolean },
+    ranked: boolean,
+  ) {
+    if (!token) return;
+    setRankToggling({ mapId, diffId: diff.id });
+    setApproveError(null);
+    try {
+      await postJson(
+        `/admin/maps/${mapId}/difficulties/${diff.id}/rank`,
+        { ranked },
+        { headers: { "X-Admin-Token": token } },
+      );
+      await loadCandidates(token);
+      await loadRankedMaps(token, { q: rankedQuery });
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 403) {
+        setApproveError("Token inválido (403).");
+      } else {
+        setApproveError(
+          cause instanceof ApiError
+            ? cause.message
+            : "Falha de rede ao alterar a dificuldade.",
+        );
+      }
+    } finally {
+      setRankToggling(null);
     }
   }
 
@@ -722,6 +830,7 @@ export default function AdminPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border-subtle bg-surface text-left text-xs uppercase tracking-wider text-muted">
+                      <th scope="col" className="px-4 py-2 font-semibold">Rankear</th>
                       <th scope="col" className="px-4 py-2 font-semibold">Dificuldade</th>
                       <th scope="col" className="px-4 py-2 text-right font-semibold">Stars (ML)</th>
                       <th scope="col" className="hidden px-4 py-2 text-right font-semibold sm:table-cell">Acc</th>
@@ -733,9 +842,34 @@ export default function AdminPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {qualifyPreview.difficulties.map((d) => (
-                      <tr key={d.id} className="border-b border-border-subtle/60 last:border-b-0">
-                        <td className="px-4 py-2 font-medium">{d.name}</td>
+                    {qualifyPreview.difficulties.map((d) => {
+                      const excluded = qualifyExcluded.includes(d.name);
+                      return (
+                      <tr
+                        key={d.id}
+                        className={`border-b border-border-subtle/60 last:border-b-0 ${excluded ? "opacity-60" : ""}`}
+                      >
+                        <td className="px-4 py-2">
+                          <input
+                            type="checkbox"
+                            checked={!excluded}
+                            onChange={(e) =>
+                              setQualifyExcluded((prev) =>
+                                e.target.checked
+                                  ? prev.filter((n) => n !== d.name)
+                                  : [...prev, d.name],
+                              )
+                            }
+                            aria-label={`Rankear dificuldade ${d.name}`}
+                            className="h-4 w-4 cursor-pointer accent-[var(--secondary)]"
+                          />
+                        </td>
+                        <td className="px-4 py-2 font-medium">
+                          {d.name}
+                          {excluded ? (
+                            <span className="ml-2 text-xs font-semibold text-danger">fora do ranking</span>
+                          ) : null}
+                        </td>
                         <td className="px-4 py-2 text-right">
                           <input
                             value={starsOverride[d.name] ?? ""}
@@ -768,7 +902,8 @@ export default function AdminPage() {
                           )}
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -783,7 +918,8 @@ export default function AdminPage() {
                   Colocar na fila de qualify
                 </Button>
                 <span className="text-xs text-muted">
-                  Edite o campo Stars para pedir ao ML um ajuste manual do nível.
+                  Desmarque dificuldades inviáveis (Lightshow, dificuldades sem
+                  leaderboard). Edite o campo Stars para pedir ao ML um ajuste.
                 </span>
                 {queueError ? (
                   <span role="alert" className="text-sm text-danger">{queueError}</span>
@@ -834,61 +970,114 @@ export default function AdminPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {candidates.map((cand) => (
-                    <tr key={cand.id} className="border-b border-border-subtle/60 last:border-b-0">
-                      <td className="px-4 py-2.5 font-medium">
-                        <span className="block max-w-56 truncate">{cand.name}</span>
-                      </td>
-                      <td className="hidden px-4 py-2.5 text-muted sm:table-cell">
-                        {cand.mapper ?? "—"}
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <Badge variant={cand.status === "qualified" ? "secondary" : "warning"}>
-                          {cand.status === "qualified" ? "na fila" : "candidato"}
-                        </Badge>
-                      </td>
-                      <td className="hidden px-4 py-2.5 tabular-nums text-muted md:table-cell">
-                        {cand.bpm ? Math.round(cand.bpm) : "—"}
-                      </td>
-                      <td className="hidden px-4 py-2.5 text-muted md:table-cell">
-                        {cand.submitted_by ?? "—"}
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <div className="flex items-center justify-end gap-2">
-                          {cand.status === "qualified" ? (
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              onClick={() => runApprove(cand.id)}
-                              disabled={!token || approveLoading}
-                            >
-                              {approveLoading ? <Spinner size={12} /> : null}
-                              Aprovar
-                            </Button>
-                          ) : (
-                            <Button
-                              size="sm"
-                              onClick={() => runQueueFor(cand.id)}
-                              disabled={!token || queueLoading}
-                            >
-                              {queueLoading ? <Spinner size={12} /> : null}
-                              Colocar na fila
-                            </Button>
-                          )}
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => runReject(cand.id)}
-                            disabled={!token || rejectLoading === cand.id}
-                            className="text-danger hover:text-danger"
-                          >
-                            {rejectLoading === cand.id ? <Spinner size={12} /> : null}
-                            Recusar
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                  {candidates.map((cand) => {
+                    const isRankedMap = cand.status === "ranked";
+                    const candExcluded = excludedByMap[cand.id] ?? [];
+                    return (
+                      <Fragment key={cand.id}>
+                      <tr className="border-b border-border-subtle/60">
+                        <td className="px-4 py-2.5 font-medium">
+                          <span className="block max-w-56 truncate">{cand.name}</span>
+                        </td>
+                        <td className="hidden px-4 py-2.5 text-muted sm:table-cell">
+                          {cand.mapper ?? "—"}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <Badge variant={cand.status === "ranked" ? "success" : cand.status === "qualified" ? "secondary" : "warning"}>
+                            {cand.status === "ranked" ? "rankeado" : cand.status === "qualified" ? "na fila" : "candidato"}
+                          </Badge>
+                        </td>
+                        <td className="hidden px-4 py-2.5 tabular-nums text-muted md:table-cell">
+                          {cand.bpm ? Math.round(cand.bpm) : "—"}
+                        </td>
+                        <td className="hidden px-4 py-2.5 text-muted md:table-cell">
+                          {cand.submitted_by ?? "—"}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <div className="flex items-center justify-end gap-2">
+                            {cand.status === "qualified" ? (
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => runApprove(cand.id)}
+                                disabled={!token || approveLoading}
+                              >
+                                {approveLoading ? <Spinner size={12} /> : null}
+                                Aprovar
+                              </Button>
+                            ) : cand.status === "candidate" ? (
+                              <Button
+                                size="sm"
+                                onClick={() => runQueueFor(cand.id)}
+                                disabled={!token || queueLoading}
+                              >
+                                {queueLoading ? <Spinner size={12} /> : null}
+                                Colocar na fila
+                              </Button>
+                            ) : null}
+                            {!isRankedMap ? (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => runReject(cand.id)}
+                                disabled={!token || rejectLoading === cand.id}
+                                className="text-danger hover:text-danger"
+                              >
+                                {rejectLoading === cand.id ? <Spinner size={12} /> : null}
+                                Recusar
+                              </Button>
+                            ) : null}
+                          </div>
+                        </td>
+                      </tr>
+                      <tr className="border-b border-border-subtle/30 last:border-b-0">
+                        <td colSpan={6} className="bg-background/40 px-4 py-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-muted">
+                              Dificuldades
+                            </span>
+                            {cand.difficulties.length === 0 ? (
+                              <span className="text-xs text-muted">sem análise</span>
+                            ) : (
+                              cand.difficulties.map((d) => {
+                                const excluded = candExcluded.includes(d.name);
+                                const toggling = rankToggling?.diffId === d.id;
+                                return (
+                                  <label
+                                    key={d.id}
+                                    className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors ${
+                                      excluded
+                                        ? "border-border-subtle bg-background/60 text-muted line-through"
+                                        : "border-border-subtle bg-surface text-foreground"
+                                    }`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={!excluded}
+                                      onChange={(e) =>
+                                        setCandExcluded(cand.id, d.name, !e.target.checked)
+                                      }
+                                      aria-label={`Rankear ${d.name} de ${cand.name}`}
+                                      className="h-3.5 w-3.5 cursor-pointer accent-[var(--secondary)]"
+                                    />
+                                    <span className="font-semibold">{d.name}</span>
+                                    <span className="tabular-nums text-muted">
+                                      {d.total_stars != null ? formatNumber(d.total_stars) : "—"}★
+                                    </span>
+                                    {excluded ? (
+                                      <span className="font-semibold text-danger">fora</span>
+                                    ) : null}
+                                    {toggling ? <Spinner size={10} /> : null}
+                                  </label>
+                                );
+                              })
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                      </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -902,6 +1091,136 @@ export default function AdminPage() {
           {approveSuccess ? (
             <p role="status" className="mt-3 text-sm text-emerald-600">{approveSuccess}</p>
           ) : null}
+        </CardContent>
+      </Card>
+
+      {/* Mapas rankeados — remover dificuldades inviáveis */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Mapas rankeados — dificuldades</CardTitle>
+          <p className="text-sm text-muted">
+            Desative dificuldades inviáveis (is_ranked=false): elas somem do ranking,
+            reweight, playlists e leaderboards, sem recusar o mapa.
+          </p>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          {!token ? (
+            <p className="text-sm text-muted">Informe o X-Admin-Token acima para gerenciar.</p>
+          ) : (
+            <>
+              <div className="relative flex max-w-sm items-center">
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  className="pointer-events-none absolute left-3 h-4 w-4 text-muted"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+                <input
+                  type="search"
+                  value={rankedQuery}
+                  onChange={(e) => onRankedSearch(e.target.value)}
+                  placeholder="Buscar mapa rankeado…"
+                  aria-label="Buscar mapa rankeado"
+                  className="h-9 w-full rounded-md border border-border-subtle bg-surface pl-9 pr-3 text-sm text-foreground placeholder:text-muted focus:border-secondary focus:outline-none"
+                />
+              </div>
+              {rankedMaps && rankedMaps.length > 0 ? (
+                <p className="text-xs text-muted">
+                  Exibindo {rankedMaps.length} de {rankedTotal} mapas rankeados
+                  {rankedQuery.trim() ? ` (buscando “${rankedQuery.trim()}”)` : ""}.
+                </p>
+              ) : null}
+            </>
+          )}
+          {rankedLoading && !rankedMaps ? (
+            <p className="flex items-center gap-2 text-sm text-muted">
+              <Spinner size={14} /> carregando mapas rankeados…
+            </p>
+          ) : rankedError ? (
+            <p role="alert" className="text-sm text-danger">{rankedError}</p>
+          ) : !rankedMaps || rankedMaps.length === 0 ? (
+            <p className="text-sm text-muted">
+              {rankedQuery.trim() ? "Nenhum mapa rankeado com essa busca." : "Nenhum mapa rankeado."}
+            </p>
+          ) : (
+            <>
+            <div className="flex flex-col gap-2">
+              {rankedMaps.map((m) => (
+                <div
+                  key={m.id}
+                  className="flex flex-col gap-1.5 rounded-lg border border-border-subtle bg-background/40 px-3 py-2.5"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="truncate font-semibold">{m.name}</span>
+                    {m.mapper ? <span className="text-xs text-muted">{m.mapper}</span> : null}
+                    <span className="text-xs tabular-nums text-muted">
+                      {m.difficulties.filter((d) => d.is_ranked).length}/{m.difficulties.length} rankeadas
+                    </span>
+                  </div>
+                  {m.difficulties.length === 0 ? (
+                    <span className="text-xs text-muted">sem dificuldades Standard</span>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {m.difficulties.map((d) => {
+                        const toggling = rankToggling?.mapId === m.id && rankToggling?.diffId === d.id;
+                        return (
+                          <label
+                            key={d.id}
+                            className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors ${
+                              d.is_ranked
+                                ? "border-border-subtle bg-surface text-foreground"
+                                : "border-border-subtle bg-background/60 text-muted line-through"
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={d.is_ranked}
+                              disabled={toggling}
+                              onChange={(e) => void toggleDifficultyRank(m.id, d, e.target.checked)}
+                              aria-label={`Rankear ${d.name} de ${m.name}`}
+                              className="h-3.5 w-3.5 cursor-pointer accent-[var(--secondary)]"
+                            />
+                            <span className="font-semibold">{d.name}</span>
+                            <span className="tabular-nums text-muted">
+                              {d.total_stars != null ? formatNumber(d.total_stars) : "—"}★
+                            </span>
+                            {!d.is_ranked ? (
+                              <span className="font-semibold text-danger">fora</span>
+                            ) : null}
+                            {toggling ? <Spinner size={10} /> : null}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            {rankedMaps && rankedMaps.length < rankedTotal ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() =>
+                  void loadRankedMaps(token ?? "", {
+                    q: rankedQuery,
+                    offset: rankedMaps.length,
+                    append: true,
+                  })
+                }
+                disabled={rankedLoading}
+              >
+                {rankedLoading ? <Spinner size={12} /> : null}
+                Carregar mais ({rankedTotal - rankedMaps.length} restantes)
+              </Button>
+            ) : null}
+            </>
+          )}
         </CardContent>
       </Card>
 

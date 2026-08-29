@@ -39,6 +39,7 @@ async def persist_live_score(session: AsyncSession, live: LiveScore) -> dict | N
             .options(joinedload(Difficulty.map))
             .where(Difficulty.ss_leaderboard_id == live.leaderboard_id)
             .where(Map.status == MapStatus.RANKED)
+            .where(Difficulty.is_ranked.is_(True))
         )
     ).first()
     if difficulty is None:

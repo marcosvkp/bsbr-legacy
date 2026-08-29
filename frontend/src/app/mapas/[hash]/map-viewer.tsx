@@ -42,7 +42,6 @@ export function MapViewer({ map }: MapViewerProps) {
   // Padrão: dificuldade mais alta
   const activeName = selected ?? diffs[0]?.name ?? null;
   const active = diffs.find((d) => d.name === activeName) ?? null;
-  const maxPpByName = new Map(map.difficulties.map((d) => [d.name, d.max_pp]));
 
   const leaderboard = useMemo(() => {
     if (!activeName) return map.leaderboard;
@@ -90,7 +89,6 @@ export function MapViewer({ map }: MapViewerProps) {
               {active.name}
             </Badge>
             <span className="text-2xl font-black tabular-nums">{formatNumber(active.total_stars)}</span>
-            <span className="text-sm text-muted">máx {formatInt(maxPpByName.get(active.name) ?? 0)} PP</span>
           </div>
           <div className="w-full sm:max-w-xs">
             <SubStats

@@ -179,6 +179,7 @@ export interface QualificationItem {
     name: string;
     total_stars: number | null;
     ss_leaderboard_id: string | null;
+    is_ranked: boolean;
   }>;
 }
 
@@ -377,8 +378,32 @@ export interface QualifyPreviewDifficulty {
   speed_stars: number | null;
   style_tags: string[] | null;
   ss_leaderboard_id: string | null;
+  is_ranked: boolean;
   nps: number | null;
   notes: number | null;
+}
+
+export interface AdminDifficulty {
+  id: number;
+  name: string;
+  total_stars: number | null;
+  ss_leaderboard_id: string | null;
+  is_ranked: boolean;
+}
+
+export interface AdminRankedMap {
+  id: number;
+  hash: string;
+  name: string;
+  mapper: string | null;
+  bpm: number | null;
+  cover_url: string | null;
+  difficulties: Array<{
+    id: number;
+    name: string;
+    total_stars: number | null;
+    is_ranked: boolean;
+  }>;
 }
 
 export interface QualifyPreviewResponse {
@@ -397,6 +422,7 @@ export interface AdminCandidate {
   cover_url: string | null;
   submitted_by: string | null;
   created_at: string | null;
+  difficulties: AdminDifficulty[];
 }
 
 /** Coeficiente de ponderação do ranking: pp_ponderado = pp * 0.965^posicao. */

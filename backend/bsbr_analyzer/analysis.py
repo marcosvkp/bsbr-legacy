@@ -192,13 +192,29 @@ def analyze_difficulty(
 def analyze_map_folder(map_dir: str) -> MapAnalysis:
     """Analisa um mapa já extraído em disco (id sintético 'local')."""
     info = read_info_dat(map_dir)
+    # BPM: V2/V3 no topo (_beatsPerMinute/beatsPerMinute); V4 em song.beatsPerMinute;
+    # V4.0.1 em audio.bpm.
     bpm = _get(info, "_beatsPerMinute", "beatsPerMinute", default=None)
     if bpm is None:
-        bpm = (_get(info, "_songName", default={}) and 0) or 0
+        bpm = (info.get("song") or {}).get("beatsPerMinute")
+    if bpm is None:
+        bpm = (info.get("audio") or {}).get("bpm")
     bpm = float(bpm or 0.0)
 
-    name = _get(info, "_songName", "songName", default="Unknown")
-    mapper = _get(info, "_levelAuthorName", "levelAuthorName", default="Unknown")
+    # V4: título/mapper aninhados em "song" (songName/levelAuthorName ou title/author).
+    song = info.get("song") or {}
+    name = (
+        _get(info, "_songName", "songName", default=None)
+        or song.get("songName")
+        or song.get("title")
+        or "Unknown"
+    )
+    mapper = (
+        _get(info, "_levelAuthorName", "levelAuthorName", default=None)
+        or song.get("levelAuthorName")
+        or song.get("author")
+        or "Unknown"
+    )
 
     difficulties: List[DifficultyAnalysis] = []
     for diff in iter_standard_difficulties(info):

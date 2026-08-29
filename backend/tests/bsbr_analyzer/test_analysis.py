@@ -131,6 +131,41 @@ def test_cli_prints_table(tmp_path, capsys):
     assert "*" in out
 
 
+def test_analyze_folder_v4_info(tmp_path):
+    """Info.dat 4.0.1: BPM em audio.bpm, título/autor em song, difficultyBeatmaps achatado."""
+    info = {
+        "version": "4.0.1",
+        "song": {"title": "Tech V4", "subTitle": "", "author": "MapperD"},
+        "audio": {"bpm": 130.0},
+        "songPreviewFilename": "",
+        "coverImageFilename": "",
+        "difficultyBeatmaps": [
+            {
+                "characteristic": "Standard",
+                "difficulty": "Expert",
+                "noteJumpMovementSpeed": 16.0,
+                "beatmapDataFilename": "ExpertStandard.dat",
+            },
+            {
+                "characteristic": "Lightshow",
+                "difficulty": "ExpertPlus",
+                "noteJumpMovementSpeed": 18.0,
+                "beatmapDataFilename": "ExpertPlusLightshow.dat",
+            },
+        ],
+    }
+    chart = make_tech_map_v3()
+    (tmp_path / "ExpertStandard.dat").write_text(json.dumps(chart))
+    (tmp_path / "ExpertPlusLightshow.dat").write_text(json.dumps(chart))
+    (tmp_path / "Info.dat").write_text(json.dumps(info))
+    analysis = analyze_map_folder(str(tmp_path))
+    assert analysis.name == "Tech V4"
+    assert analysis.mapper == "MapperD"
+    assert analysis.bpm == 130.0
+    assert [d.difficulty for d in analysis.difficulties] == ["Expert"]
+    assert analysis.difficulties[0].total_stars > 0
+
+
 def test_corrupt_difficulty_file_skipped(tmp_path):
     _write_map(tmp_path, SPEED_INFO_V2, make_speed_map_v2())
     (tmp_path / "Expert.dat").write_text("{invalid json")

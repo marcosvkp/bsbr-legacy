@@ -58,6 +58,7 @@ async def get_stars_bands(
         .join(Player, Score.player_id == Player.id)
         .where(Map.status == MapStatus.RANKED)
         .where(Difficulty.total_stars.is_not(None))
+        .where(Difficulty.is_ranked.is_(True))
         .where(Score.pp.is_not(None))
         .where(Score.pp > 0)
     )

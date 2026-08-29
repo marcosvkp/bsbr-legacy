@@ -48,7 +48,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         </main>
         <footer className="border-t border-border-subtle py-6">
           <p className="mx-auto w-full max-w-5xl px-4 text-sm text-muted">
-            BSBR — Beat Saber Brasil Ranking · projeto da comunidade
+            BSBR — Beat Saber Brasil Ranking · Projeto da Comunidade
           </p>
         </footer>
       </body>

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ApiError, getJson } from "@/lib/api";
 import type { MapDetail } from "@/lib/types";
-import { formatDate, formatNumber } from "@/lib/format";
+import { formatDate, formatInt } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SmartImg } from "@/components/smart-img";
@@ -98,7 +98,7 @@ export default async function MapDetailPage(props: PageProps<"/mapas/[hash]">) {
               {map.bpm != null ? (
                 <>
                   <span className="mx-1.5 text-muted/50">·</span>
-                  {formatNumber(map.bpm)} BPM
+                  {formatInt(map.bpm)} BPM
                 </>
               ) : null}
             </p>

@@ -172,8 +172,14 @@ async def approve_map(
     *,
     ss_leaderboard_ids: dict[str, str],
     reviewer: str,
+    excluded_difficulties: list[str] | None = None,
 ) -> Map:
-    """Promove candidato/qualificado a rankeado, exigindo leaderboard por diff."""
+    """Promove candidato/qualificado a rankeado, exigindo leaderboard por diff.
+
+    Dificuldades em ``excluded_difficulties`` são marcadas is_ranked=False e não
+    entram no ranking (não precisam de leaderboard, não geram RatingHistory).
+    """
+    excluded = set(excluded_difficulties or ())
     m = await session.get(Map, map_id)
     if m is None:
         raise ValueError(f"mapa {map_id} não encontrado")
@@ -192,12 +198,20 @@ async def approve_map(
     # ss_leaderboard_ids vazios: usa os já preenchidos (auto-fetch do qualify)
     for d in difficulties:
         ss_leaderboard_ids.setdefault(d.name, d.ss_leaderboard_id or "")
-    missing = [d.name for d in difficulties if not ss_leaderboard_ids.get(d.name)]
+    missing = [
+        d.name for d in difficulties if d.name not in excluded and not ss_leaderboard_ids.get(d.name)
+    ]
     if missing:
         raise ValueError(f"ss_leaderboard_id ausente para: {', '.join(missing)}")
 
     now = datetime.now(timezone.utc)
     for d in difficulties:
+        if d.name in excluded:
+            d.is_ranked = False
+            d.ss_leaderboard_id = None
+            d.ranked_at = None
+            continue
+        d.is_ranked = True
         before = d.total_stars
         d.ss_leaderboard_id = str(ss_leaderboard_ids[d.name])
         d.ranked_at = now

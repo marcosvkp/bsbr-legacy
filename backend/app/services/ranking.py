@@ -38,7 +38,7 @@ async def recompute_all_rankings(session: AsyncSession) -> RankingSummary:
             .join(Player, Score.player_id == Player.id)
             .join(Difficulty, Score.difficulty_id == Difficulty.id)
             .join(Map, Difficulty.map_id == Map.id)
-            .where(Map.status == MapStatus.RANKED)
+            .where(Map.status == MapStatus.RANKED, Difficulty.is_ranked.is_(True))
         )
     ).all()
 
@@ -120,6 +120,7 @@ async def medals_for_player(session: AsyncSession, player_id: int) -> dict[str, 
                 Score.player_id == player_id,
                 Score.leaderboard_rank.is_not(None),
                 Map.status == MapStatus.RANKED,
+                Difficulty.is_ranked.is_(True),
             )
             .group_by(Score.difficulty_id)
         )

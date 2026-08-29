@@ -247,6 +247,7 @@ async def sync_all_ranked_difficulties(
                     .join(Map, Difficulty.map_id == Map.id)
                     .where(Map.status == MapStatus.RANKED)
                     .where(Difficulty.ss_leaderboard_id.is_not(None))
+                    .where(Difficulty.is_ranked.is_(True))
                 )
             )
             .scalars()

@@ -81,7 +81,11 @@ async def get_player_scores(
         select(Score, Difficulty, Map)
         .join(Difficulty, Score.difficulty_id == Difficulty.id)
         .join(Map, Difficulty.map_id == Map.id)
-        .where(Score.player_id == player.id, Map.status == MapStatus.RANKED)
+        .where(
+            Score.player_id == player.id,
+            Map.status == MapStatus.RANKED,
+            Difficulty.is_ranked.is_(True),
+        )
         .order_by(Score.pp.desc().nulls_last())
     )
     rows = (

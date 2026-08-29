@@ -1,7 +1,7 @@
 """GET /maps e /maps/{hash} — catálogo rankeado com decomposição de stars."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -16,7 +16,11 @@ _DIFF_ORDER = {"ExpertPlus": 4, "Expert": 3, "Hard": 2, "Normal": 1, "Easy": 0}
 
 def _map_summary(m: Map) -> dict:
     diffs = sorted(
-        (d for d in m.difficulties if d.characteristic == "Standard" and d.total_stars is not None),
+        (
+            d
+            for d in m.difficulties
+            if d.characteristic == "Standard" and d.total_stars is not None and d.is_ranked
+        ),
         key=lambda d: d.total_stars or 0,
         reverse=True,
     )
@@ -45,27 +49,58 @@ def _map_summary(m: Map) -> dict:
     }
 
 
+def _escape_like(value: str) -> str:
+    """Escapa curingas do LIKE para busca literal (%, _, \\)."""
+    return value.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
+
+
+def _maps_filters(q: str | None, min_stars: float | None) -> list:
+    filters = [Map.status == MapStatus.RANKED]
+    if q:
+        pattern = f"%{_escape_like(q)}%"
+        filters.append(
+            or_(
+                Map.name.ilike(pattern, escape="\\"),
+                Map.mapper.ilike(pattern, escape="\\"),
+            )
+        )
+    if min_stars is not None:
+        max_stars = (
+            select(func.max(Difficulty.total_stars))
+            .where(Difficulty.map_id == Map.id, Difficulty.is_ranked.is_(True))
+            .scalar_subquery()
+        )
+        filters.append(max_stars >= min_stars)
+    return filters
+
+
 @router.get("/maps")
 async def list_maps(
     page: int = Query(1, ge=1),
     page_size: int = Query(30, ge=1, le=100),
     sort: str = Query("stars", pattern="^(stars|recent|name)$"),
+    q: str | None = Query(None, max_length=80, description="Busca por nome do mapa ou mapper"),
+    min_stars: float | None = Query(None, ge=0, le=20, description="Filtra mapas com pelo menos N estrelas"),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    cache_key = f"maps:{sort}:{page}:{page_size}"
+    cache_key = f"maps:{sort}:{page}:{page_size}:{q or ''}:{min_stars or 0}"
     cached = await cache.get_json(cache_key)
     if cached is not None:
         return cached
 
+    filters = _maps_filters(q, min_stars)
     total = (
-        await db.execute(
-            select(func.count()).select_from(Map).where(Map.status == MapStatus.RANKED)
-        )
+        await db.execute(select(func.count()).select_from(Map).where(*filters))
     ).scalar_one()
 
     order = {
         # Ordena por melhor dificuldade: subquery do max(total_stars)
-        "stars": select(func.max(Difficulty.total_stars)).where(Difficulty.map_id == Map.id).scalar_subquery().desc(),
+        "stars": (
+            select(func.max(Difficulty.total_stars))
+            .where(Difficulty.map_id == Map.id, Difficulty.is_ranked.is_(True))
+            .scalar_subquery()
+            .desc()
+        ),
         "recent": Map.created_at.desc(),
         "name": Map.name.asc(),
     }[sort]
@@ -74,7 +109,7 @@ async def list_maps(
         (
             await db.execute(
                 select(Map)
-                .where(Map.status == MapStatus.RANKED)
+                .where(*filters)
                 .options(selectinload(Map.difficulties))
                 .order_by(order)
                 .offset((page - 1) * page_size)
@@ -129,6 +164,7 @@ async def list_qualification(db: AsyncSession = Depends(get_db)) -> dict:
                         "name": d.name,
                         "total_stars": d.total_stars,
                         "ss_leaderboard_id": d.ss_leaderboard_id,
+                        "is_ranked": d.is_ranked,
                     }
                     for d in sorted(
                         (d for d in m.difficulties if d.characteristic == "Standard"),
@@ -157,7 +193,9 @@ async def get_map(map_hash: str, db: AsyncSession = Depends(get_db)) -> dict:
     if m is None:
         raise HTTPException(status_code=404, detail="mapa não encontrado")
 
-    difficulties = [d for d in m.difficulties if d.characteristic == "Standard"]
+    difficulties = [
+        d for d in m.difficulties if d.characteristic == "Standard" and d.is_ranked
+    ]
     difficulty_ids = [d.id for d in difficulties] or [0]
 
     top_scores = (
@@ -166,7 +204,7 @@ async def get_map(map_hash: str, db: AsyncSession = Depends(get_db)) -> dict:
                 select(Score, Player.name, Difficulty.name, Player.ss_id, Player.avatar_url)
                 .join(Player, Score.player_id == Player.id)
                 .join(Difficulty, Score.difficulty_id == Difficulty.id)
-                .where(Difficulty.map_id == m.id)
+                .where(Difficulty.map_id == m.id, Difficulty.is_ranked.is_(True))
                 .order_by(Score.pp.desc().nulls_last())
                 .limit(50)
             )

@@ -9,6 +9,7 @@ import { BackendOffline, EmptyState } from "@/components/empty-state";
 import { Pagination } from "@/components/pagination";
 import { SubStats } from "@/components/sub-stats";
 import { PlaylistDownload } from "@/components/playlist-download";
+import { MapsFilter } from "./maps-filter";
 import { SortSelect } from "./sort-select";
 
 export const metadata: Metadata = {
@@ -26,6 +27,15 @@ function parseSort(value: string | undefined): string {
 function parsePage(value: string | undefined): number {
   const parsed = Number.parseInt(value ?? "1", 10);
   return Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
+}
+
+function parseQuery(value: string | undefined): string {
+  return value ?? "";
+}
+
+function parseStars(value: string | undefined): number {
+  const parsed = Number.parseFloat(value ?? "0");
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 }
 
 function StarIcon() {
@@ -99,11 +109,6 @@ function MapCard({ map }: MapCardProps) {
             </span>
           ) : null}
         </div>
-        {main ? (
-          <span className="absolute right-3 top-3 rounded-md bg-accent px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-white shadow-[0_0_12px_var(--glow-accent)]">
-            {main.name}
-          </span>
-        ) : null}
       </div>
       <div className="flex flex-1 flex-col gap-2.5 p-3.5">
         <div className="flex items-start justify-between gap-2">
@@ -222,10 +227,15 @@ function QualificationList({ data }: { data: QualificationResponse }) {
                 {item.difficulties.slice(0, 3).map((d) => (
                   <span
                     key={d.name}
-                    className="rounded-full border border-border-subtle bg-surface-2 px-2 py-0.5 text-[10px] font-semibold text-muted"
+                    className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                      d.is_ranked === false
+                        ? "border-border-subtle bg-background/60 text-muted/60 line-through"
+                        : "border-border-subtle bg-surface-2 text-muted"
+                    }`}
                   >
                     {d.name}
                     {d.total_stars != null ? ` · ${formatNumber(d.total_stars)}★` : ""}
+                    {d.is_ranked === false ? " (fora)" : ""}
                   </span>
                 ))}
                 {item.difficulties.length > 3 ? (
@@ -250,6 +260,10 @@ export default async function MapsPage(props: PageProps<"/mapas">) {
     Array.isArray(searchParams.sort) ? searchParams.sort[0] : searchParams.sort,
   );
   const page = parsePage(Array.isArray(searchParams.page) ? searchParams.page[0] : searchParams.page);
+  const q = parseQuery(Array.isArray(searchParams.q) ? searchParams.q[0] : searchParams.q);
+  const minStars = parseStars(
+    Array.isArray(searchParams.min_stars) ? searchParams.min_stars[0] : searchParams.min_stars,
+  );
 
   let data: MapsResponse | null = null;
   let qualification: QualificationResponse | null = null;
@@ -258,7 +272,10 @@ export default async function MapsPage(props: PageProps<"/mapas">) {
     if (isQualification) {
       qualification = await getJson<QualificationResponse>("/maps/qualification");
     } else {
-      data = await getJson<MapsResponse>(`/maps?sort=${sort}&page=${page}&page_size=${PAGE_SIZE}`);
+      const params = new URLSearchParams({ sort, page: String(page), page_size: String(PAGE_SIZE) });
+      if (q) params.set("q", q);
+      if (minStars > 0) params.set("min_stars", String(minStars));
+      data = await getJson<MapsResponse>(`/maps?${params.toString()}`);
     }
   } catch {
     offline = true;
@@ -308,13 +325,19 @@ export default async function MapsPage(props: PageProps<"/mapas">) {
         </div>
         <div className="flex flex-wrap items-center gap-3">
           {!isQualification && data ? <PlaylistDownload total={data.total} /> : null}
-          {!isQualification ? (
-            <Suspense fallback={null}>
-              <SortSelect value={sort} />
-            </Suspense>
-          ) : null}
         </div>
       </div>
+
+      {!isQualification ? (
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <Suspense fallback={null}>
+            <MapsFilter initialQuery={q} minStars={minStars} />
+          </Suspense>
+          <Suspense fallback={null}>
+            <SortSelect value={sort} />
+          </Suspense>
+        </div>
+      ) : null}
 
       {tabs}
 
@@ -324,11 +347,13 @@ export default async function MapsPage(props: PageProps<"/mapas">) {
         <QualificationList data={qualification!} />
       ) : data!.items.length === 0 ? (
         <EmptyState
-          title={page > 1 ? "Sem mapas nesta página" : "Nenhum mapa rankeado"}
+          title={q || minStars > 0 ? "Nenhum mapa encontrado" : page > 1 ? "Sem mapas nesta página" : "Nenhum mapa rankeado"}
           description={
-            page > 1
-              ? undefined
-              : "O catálogo é populado pelo batch semanal a partir dos leaderboards."
+            q || minStars > 0
+              ? "Ajuste a busca ou o filtro de estrelas para encontrar o que procura."
+              : page > 1
+                ? undefined
+                : "O catálogo é populado pelo batch semanal a partir dos leaderboards."
           }
         />
       ) : (
@@ -343,7 +368,7 @@ export default async function MapsPage(props: PageProps<"/mapas">) {
             pageSize={data!.page_size}
             total={data!.total}
             basePath="/mapas"
-            params={{ sort }}
+            params={{ sort, q: q || undefined, min_stars: minStars > 0 ? String(minStars) : undefined }}
           />
         </>
       )}

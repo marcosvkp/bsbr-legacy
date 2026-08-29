@@ -135,6 +135,50 @@ async def test_maps_list_and_detail(client, seeded):
     assert detail["leaderboard"][0]["pp"] == pytest.approx(get_pp(5.0, 95.0), abs=1e-2)
 
 
+async def test_map_catalog_excludes_unranked_difficulties(client, seeded):
+    """Dificuldade com is_ranked=False some do catálogo, do detail e do max-stars."""
+    from app.core.db import SessionLocal
+
+    async with SessionLocal() as s:
+        s.add(
+            Difficulty(
+                map_id=1,
+                characteristic="Standard",
+                name="Easy",
+                total_stars=9.0,  # maior que a ExpertPlus rankeada (5.0)
+                acc_stars=2.7,
+                tech_stars=2.7,
+                speed_stars=3.6,
+                max_score=500000,
+                ranked_at=None,
+                ss_leaderboard_id=None,
+                is_ranked=False,
+            )
+        )
+        await s.commit()
+
+    listed = client.get("/api/v1/maps?page_size=30").json()
+    assert listed["total"] == 1
+    assert [d["name"] for d in listed["items"][0]["difficulties"]] == ["ExpertPlus"]
+
+    detail = client.get("/api/v1/maps/h1").json()
+    assert [d["name"] for d in detail["difficulties_detail"]] == ["ExpertPlus"]
+
+    # max-stars do mapa ignora a Easy desativada (9.0 fora do filtro)
+    assert client.get("/api/v1/maps", params={"min_stars": 6.0}).json()["total"] == 0
+
+
+async def test_maps_search_by_name_or_mapper(client, seeded):
+    assert client.get("/api/v1/maps", params={"q": "music"}).json()["total"] == 1
+    assert client.get("/api/v1/maps", params={"q": "MAPP"}).json()["total"] == 1
+    assert client.get("/api/v1/maps", params={"q": "zzz-inexistente"}).json()["total"] == 0
+
+
+async def test_maps_filter_by_min_stars(client, seeded):
+    assert client.get("/api/v1/maps", params={"min_stars": 4.0}).json()["total"] == 1
+    assert client.get("/api/v1/maps", params={"min_stars": 6.0}).json()["total"] == 0
+
+
 async def test_playlist_download(client, seeded):
     r = client.get("/api/v1/playlists/ranked.bplist")
     assert r.status_code == 200

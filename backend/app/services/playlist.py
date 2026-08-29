@@ -59,7 +59,7 @@ async def generate_bsbr_playlist(
     songs_by_hash: dict[str, dict[str, Any]] = {}
     for m in rows:
         diffs = sorted(
-            (d for d in m.difficulties if d.characteristic == "Standard"),
+            (d for d in m.difficulties if d.characteristic == "Standard" and d.is_ranked),
             key=lambda d: (_DIFF_ORDER.get(_normalize_diff(d.name), 99), d.name),
         )
         if not diffs:

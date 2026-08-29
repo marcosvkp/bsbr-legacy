@@ -104,6 +104,62 @@ async def test_approve_requires_leaderboard_ids(session, monkeypatch):
     assert hist.reason.startswith("Ranqueamento inicial")
 
 
+async def test_approve_excludes_difficulty(session, monkeypatch):
+    import bsbr_analyzer
+    from bsbr_analyzer.analysis import DifficultyAnalysis, MapAnalysis
+
+    def make():
+        def diff(name, stars):
+            return DifficultyAnalysis(
+                characteristic="Standard",
+                difficulty=name,
+                njs=16.0,
+                notes=300,
+                nps=3.0,
+                total_stars=stars,
+                acc_stars=round(stars * 0.3, 2),
+                tech_stars=round(stars * 0.3, 2),
+                speed_stars=round(stars * 0.4, 2),
+                share_acc=0.3,
+                share_tech=0.3,
+                share_speed=0.4,
+                style_tags=["tech"],
+                features={"nps": 3.0, "note_count": 300},
+            )
+
+        return MapAnalysis(
+            map_id="53c5b",
+            hash="b" * 40,
+            name="Duas Diffs",
+            mapper="Mapper",
+            bpm=120.0,
+            difficulties=[diff("ExpertPlus", 6.83), diff("Easy", 2.1)],
+        )
+
+    monkeypatch.setattr(bsbr_analyzer, "analyze_map", lambda source: make())
+    preview = await qualify_source(session, "53c5b")
+    map_id = preview["map"]["id"]
+
+    approved = await approve_map(
+        session,
+        map_id,
+        ss_leaderboard_ids={"ExpertPlus": "111"},
+        reviewer="staff",
+        excluded_difficulties=["Easy"],
+    )
+    assert approved.status == MapStatus.RANKED
+    diffs = (await session.scalars(select(Difficulty).order_by(Difficulty.id))).all()
+    by_name = {d.name: d for d in diffs}
+    assert by_name["ExpertPlus"].is_ranked is True
+    assert by_name["ExpertPlus"].ss_leaderboard_id == "111"
+    assert by_name["ExpertPlus"].ranked_at is not None
+    assert by_name["Easy"].is_ranked is False
+    assert by_name["Easy"].ss_leaderboard_id is None
+    assert by_name["Easy"].ranked_at is None
+    # RatingHistory só para a dificuldade rankeada
+    assert len((await session.scalars(select(RatingHistory))).all()) == 1
+
+
 async def test_double_approve_rejected(session, monkeypatch):
     import bsbr_analyzer
 
