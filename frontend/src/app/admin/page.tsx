@@ -826,7 +826,7 @@ export default function AdminPage() {
                 ) : null}
               </div>
 
-              <div className="overflow-hidden rounded-lg border border-border-subtle">
+              <div className="overflow-x-auto rounded-lg border border-border-subtle">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border-subtle bg-surface text-left text-xs uppercase tracking-wider text-muted">
@@ -957,7 +957,7 @@ export default function AdminPage() {
               Nenhum candidato na fila. Analise um mapa acima para começar.
             </p>
           ) : (
-            <div className="overflow-hidden rounded-lg border border-border-subtle">
+            <div className="overflow-x-auto rounded-lg border border-border-subtle">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border-subtle bg-surface text-left text-xs uppercase tracking-wider text-muted">
@@ -1291,7 +1291,7 @@ export default function AdminPage() {
           ) : batches.length === 0 ? (
             <p className="py-4 text-sm text-muted">Nenhum batch executado ainda.</p>
           ) : (
-            <div className="overflow-hidden rounded-lg border border-border-subtle">
+            <div className="overflow-x-auto rounded-lg border border-border-subtle">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border-subtle bg-surface text-left text-xs uppercase tracking-wider text-muted">

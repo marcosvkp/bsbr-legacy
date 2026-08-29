@@ -101,7 +101,7 @@ export function Calculator({ scoresPps }: CalculatorProps) {
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-      <div className="grid gap-4 sm:grid-cols-[1fr_1fr_1.4fr]">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_1fr_1.4fr]">
         <label className="flex flex-col gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted">
           Estrelas
           <input

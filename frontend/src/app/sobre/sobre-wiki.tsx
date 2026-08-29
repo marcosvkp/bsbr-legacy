@@ -102,12 +102,12 @@ function CurveChart() {
   const marker100 = CURVE_POINTS[CURVE_POINTS.length - 1];
 
   return (
-    <div className="overflow-hidden rounded-lg border border-border-subtle bg-background/40">
+    <div className="overflow-x-auto rounded-lg border border-border-subtle bg-background/40">
       <svg
         role="img"
         aria-label="Gráfico do multiplicador de PP por acurácia, de 80% a 100%"
         viewBox={`0 0 ${W} ${H}`}
-        className="w-full"
+        className="w-full min-w-[560px]"
         style={{ maxWidth: 640 }}
       >
         <defs>
@@ -240,7 +240,7 @@ function StarsSection() {
           <strong className="text-foreground">sub-stars</strong>, que definem o peso de cada
           estilo naquela dificuldade:
         </p>
-        <div className="grid gap-2 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           {[
             { label: "Acc", desc: "exigência de precisão", cls: "text-secondary", cell: "bg-secondary/10 border-secondary/25" },
             { label: "Tech", desc: "padrões técnicos", cls: "text-accent", cell: "bg-accent/10 border-accent/25" },

@@ -112,7 +112,7 @@ function MapCard({ map }: MapCardProps) {
       </div>
       <div className="flex flex-1 flex-col gap-2.5 p-3.5">
         <div className="flex items-start justify-between gap-2">
-          <h3 className="line-clamp-1 text-[15px] font-bold tracking-tight text-foreground transition-colors group-hover:text-secondary">
+          <h3 className="line-clamp-2 text-[15px] font-bold leading-snug tracking-tight text-foreground transition-colors group-hover:text-secondary">
             {map.name}
           </h3>
         </div>
@@ -169,7 +169,7 @@ function QualificationList({ data }: { data: QualificationResponse }) {
     );
   }
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
       {data.items.map((item) => {
         const status = STATUS_LABEL[item.status] ?? STATUS_LABEL.candidate;
         const mainDiff = item.difficulties[0];
@@ -211,7 +211,7 @@ function QualificationList({ data }: { data: QualificationResponse }) {
               </span>
             </div>
             <div className="flex flex-1 flex-col gap-1.5 p-3.5">
-              <h3 className="line-clamp-1 text-[15px] font-bold tracking-tight text-foreground">
+              <h3 className="line-clamp-2 text-[15px] font-bold leading-snug tracking-tight text-foreground">
                 {item.name}
               </h3>
               <p className="truncate text-xs text-muted">
@@ -358,7 +358,7 @@ export default async function MapsPage(props: PageProps<"/mapas">) {
         />
       ) : (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {data!.items.map((map) => (
               <MapCard key={map.hash} map={map} />
             ))}

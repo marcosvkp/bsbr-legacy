@@ -54,8 +54,8 @@ export function RankingTable({ items, component }: RankingTableProps) {
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-3">
-        <div className="relative w-full max-w-xs">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+        <div className="relative w-full sm:max-w-xs">
           <svg
             aria-hidden="true"
             viewBox="0 0 24 24"
@@ -81,7 +81,7 @@ export function RankingTable({ items, component }: RankingTableProps) {
         </span>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-border-subtle bg-surface">
+      <div className="overflow-x-auto rounded-lg border border-border-subtle bg-surface">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border-subtle bg-background/50 text-left text-[11px] uppercase tracking-wider text-muted">
@@ -90,7 +90,7 @@ export function RankingTable({ items, component }: RankingTableProps) {
               <th scope="col" className="px-3 py-3 text-right font-bold">
                 {COMPONENT_LABEL[component]}
               </th>
-              <th scope="col" className="hidden px-3 py-3 text-right font-bold md:table-cell">
+              <th scope="col" className="px-3 py-3 text-right font-bold">
                 Acc · Tech · Speed
               </th>
             </tr>
@@ -141,8 +141,8 @@ export function RankingTable({ items, component }: RankingTableProps) {
                             : item.pp_speed,
                     )}
                   </td>
-                  <td className="hidden px-3 py-2.5 md:table-cell">
-                    <div className="ml-auto max-w-56">
+                  <td className="px-3 py-2.5">
+                    <div className="ml-auto w-72 max-w-full md:w-64">
                       <SubStats
                         acc={item.pp_acc}
                         tech={item.pp_tech}

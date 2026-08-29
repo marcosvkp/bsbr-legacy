@@ -68,7 +68,7 @@ export default async function HomePage() {
         </p>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-2">
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle>Status da API</CardTitle>
@@ -124,7 +124,7 @@ export default async function HomePage() {
         </Card>
       </section>
 
-      <section aria-label="Prévia do ranking" className="grid gap-4 md:grid-cols-2">
+      <section aria-label="Prévia do ranking" className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle>Top jogadores</CardTitle>

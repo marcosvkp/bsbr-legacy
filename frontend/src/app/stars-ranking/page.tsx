@@ -70,7 +70,7 @@ export default async function StarsRankingPage(props: PageProps<"/stars-ranking"
           description="Ainda não há scores sincronizados de mapas rankeados nesse escopo."
         />
       ) : (
-        <div className="overflow-hidden rounded-lg border border-border-subtle">
+        <div className="overflow-x-auto rounded-lg border border-border-subtle">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border-subtle bg-surface text-left text-xs uppercase tracking-wider text-muted">
