@@ -20,9 +20,27 @@ import { RadarChart } from "./radar-chart";
 import { EvolutionChart } from "./evolution-chart";
 import { Calculator } from "./calculator";
 
-export const metadata: Metadata = {
-  title: "Jogador",
-};
+export async function generateMetadata(
+  props: PageProps<"/jogadores/[ss_id]">,
+): Promise<Metadata> {
+  const { ss_id: ssId } = await props.params;
+  const title = `Jogador ${ssId} · BSBR`;
+  return {
+    title,
+    openGraph: {
+      title,
+      description: "Perfil no ranking brasileiro de Beat Saber",
+      type: "profile",
+      images: [{ url: `/api/v1/og/players/${ssId}.png`, width: 1200, height: 630, alt: title }],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description: "Perfil no ranking brasileiro de Beat Saber",
+      images: [`/api/v1/og/players/${ssId}.png`],
+    },
+  };
+}
 
 
 const TABLE_PAGE_SIZE = 25;

@@ -5,6 +5,9 @@ pydantic>=2.9
 pydantic-settings>=2.5
 orjson>=3.10
 
+# OpenGraph (PNG de share)
+pillow>=10.4
+
 # Dados
 sqlalchemy[asyncio]>=2.0.35
 aiosqlite>=0.20

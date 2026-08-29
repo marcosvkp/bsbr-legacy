@@ -9,9 +9,27 @@ import { SmartImg } from "@/components/smart-img";
 import { BackendOffline, EmptyState } from "@/components/empty-state";
 import { MapViewer } from "./map-viewer";
 
-export const metadata: Metadata = {
-  title: "Mapa",
-};
+export async function generateMetadata(
+  props: PageProps<"/mapas/[hash]">,
+): Promise<Metadata> {
+  const { hash } = await props.params;
+  const title = `Mapa ${hash.slice(0, 8)} · BSBR`;
+  return {
+    title,
+    openGraph: {
+      title,
+      description: "Mapa rankeado no ranking brasileiro de Beat Saber",
+      type: "website",
+      images: [{ url: `/api/v1/og/maps/${hash}.png`, width: 1200, height: 630, alt: title }],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description: "Mapa rankeado no ranking brasileiro de Beat Saber",
+      images: [`/api/v1/og/maps/${hash}.png`],
+    },
+  };
+}
 
 async function loadMap(hash: string): Promise<{ ok: true; map: MapDetail } | { ok: false; status: number | null }> {
   try {

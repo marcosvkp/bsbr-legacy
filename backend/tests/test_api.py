@@ -353,3 +353,27 @@ async def test_admin_reject_and_stars_override(client, seeded):
     again = client.post(f"/api/v1/admin/maps/{cand_id}/reject", headers=headers)
     assert again.status_code == 200
     assert again.json()["status"] == "removed"
+
+
+async def test_og_player_image(client, seeded):
+    """OG do jogador gera PNG 1200x630 com avatar/PP."""
+    r = client.get("/api/v1/og/players/ss1.png")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "image/png"
+    data = r.content
+    assert data[:8] == b"\x89PNG\r\n\x1a\n"  # magic PNG
+    assert len(data) > 1000
+
+
+async def test_og_map_image(client, seeded):
+    """OG do mapa gera PNG 1200x630 com cover/stars."""
+    r = client.get("/api/v1/og/maps/h1.png")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "image/png"
+    assert r.content[:8] == b"\x89PNG\r\n\x1a\n"
+    assert len(r.content) > 1000
+
+
+async def test_og_unknown_returns_404(client, seeded):
+    assert client.get("/api/v1/og/players/nao-existe.png").status_code == 404
+    assert client.get("/api/v1/og/maps/xyz.png").status_code == 404

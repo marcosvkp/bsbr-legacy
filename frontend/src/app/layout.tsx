@@ -17,6 +17,7 @@ const plex = IBM_Plex_Sans({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://bsbr.pro"),
   title: {
     default: "BSBR — Beat Saber Brasil Ranking",
     template: "%s | BSBR",

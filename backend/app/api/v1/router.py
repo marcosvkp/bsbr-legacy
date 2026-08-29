@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import admin, calc, health, live, maps, oauth, playlist, players, rankings, stars_bands
+from app.api.v1.endpoints import admin, calc, health, live, maps, og, oauth, playlist, players, rankings, stars_bands
 
 api_router = APIRouter()
 api_router.include_router(health.router, tags=["health"])
@@ -13,3 +13,4 @@ api_router.include_router(stars_bands.router, tags=["stars-bands"])
 api_router.include_router(live.router, tags=["live"])
 api_router.include_router(admin.router, tags=["admin"])
 api_router.include_router(oauth.router, tags=["admin"])
+api_router.include_router(og.router, tags=["opengraph"])
