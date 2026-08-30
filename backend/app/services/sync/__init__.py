@@ -144,6 +144,18 @@ async def sync_difficulty_scores(
             stats.errors.append(f"difficulty {difficulty_id} sem total_stars")
             return stats
 
+        # max_score ausente (ex. qualificado sem preenchimento) → busca do
+        # ScoreSaber e preenche; sem ele o acc/PP do score vira 0.
+        if difficulty.max_score is None:
+            info = await client.leaderboard_info_by_id(difficulty.ss_leaderboard_id)
+            max_score = (info or {}).get("maxScore")
+            if max_score:
+                difficulty.max_score = int(max_score)
+                await session.flush()
+            else:
+                stats.errors.append(f"difficulty {difficulty_id} sem max_score (info não retornou)")
+                return stats
+
         raw_scores = await client.leaderboard_scores_by_id(
             difficulty.ss_leaderboard_id, country=country, max_pages=max_pages
         )

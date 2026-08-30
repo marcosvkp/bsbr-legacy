@@ -21,8 +21,10 @@ from app.services.sync import (
 class FakeScoreSaberClient:
     def __init__(self, payloads: list[dict]):
         self.payloads = payloads
+        self.calls: list[str] = []
 
     async def leaderboard_scores_by_id(self, leaderboard_id, *, country=None, max_pages=None):
+        self.calls.append(f"lb:{leaderboard_id}")
         return self.payloads
 
     async def close(self):
@@ -260,3 +262,38 @@ async def test_sync_beatleader_conflict_keeps_best_pp(session):
     scores = (await session.scalars(select(Score))).all()
     assert len(scores) == 1
     assert scores[0].acc == pytest.approx(0.95)  # SS (maior PP) permanece
+
+
+async def test_sync_autofills_missing_max_score(session):
+    """Difficulty sem max_score: o sync busca do ScoreSaber e preenche antes
+    de calcular acc/pp (regressão do Feed The Machine — max_score NULL → pp 0)."""
+    m = Map(hash="fm123", name="Feed  The Machine", status="ranked")
+    session.add(m)
+    await session.flush()
+    d = Difficulty(
+        map_id=m.id,
+        characteristic="Standard",
+        name="Expert",
+        ss_leaderboard_id="2243272",
+        total_stars=4.68,
+        acc_stars=1.4,
+        tech_stars=1.4,
+        speed_stars=1.88,
+        max_score=None,  # o bug
+    )
+    session.add(d)
+    await session.commit()
+
+    class AutofillClient(FakeScoreSaberClient):
+        async def leaderboard_info_by_id(self, leaderboard_id):
+            self.calls.append(f"info:{leaderboard_id}")
+            return {"id": leaderboard_id, "maxScore": 454595}
+
+    fake = AutofillClient([raw_score("76561198275522989", "Redstone", 400000, 400000, 100.0, "2026-08-28T21:26:52Z")])
+    await sync_difficulty_scores(session, d.id, client=fake)
+
+    await session.refresh(d)
+    assert d.max_score == 454595
+    score = (await session.scalars(select(Score))).one()
+    assert score.acc == pytest.approx(400000 / 454595)
+    assert score.pp > 0

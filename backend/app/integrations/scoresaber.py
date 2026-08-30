@@ -132,6 +132,10 @@ class ScoreSaberClient:
             {"difficulty": difficulty_rank},
         )
 
+    async def leaderboard_info_by_id(self, leaderboard_id: int | str) -> dict[str, Any] | None:
+        """GET /leaderboard/by-id/{id}/info — maxScore, stars, difficulty."""
+        return await self._get(f"/leaderboard/by-id/{leaderboard_id}/info")
+
     async def leaderboard_scores_by_hash(
         self,
         map_hash: str,
