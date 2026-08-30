@@ -1,0 +1,9 @@
+<Project>
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <!-- Instância padrão de teste (1.39.1). Override via Directory.Build.local.props ou -p:BeatSaberDir -->
+    <BeatSaberDir Condition="'$(BeatSaberDir)' == ''">C:\Users\Pini\BSManager\BSInstances\1.39.1</BeatSaberDir>
+  </PropertyGroup>
+  <Import Project="$(MSBuildThisFileDirectory)Directory.Build.local.props"
+          Condition="Exists('$(MSBuildThisFileDirectory)Directory.Build.local.props')" />
+</Project>

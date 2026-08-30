@@ -178,6 +178,124 @@ async def list_qualification(db: AsyncSession = Depends(get_db)) -> dict:
     }
 
 
+@router.get("/leaderboard/{map_hash}")
+async def get_leaderboard_by_difficulty(
+    map_hash: str,
+    difficulty: str = Query(..., description="Nome exato da dificuldade (ex. ExpertPlus)"),
+    characteristic: str = Query("Standard"),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0, description="Deslocamento para paginação (top 10 por página)"),
+    player_id: str | None = Query(
+        None, description="ss_id do jogador local (destaca a própria linha no painel)"
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Top scores de uma dificuldade específica — usado pelo plugin in-game.
+
+    O plugin manda o hash em MAIÚSCULAS (vem de `custom_level_<HASH>`); aqui
+    normalizamos para lowercase. O `player` (rank do próprio jogador) é
+    calculado por request e não entra no cache. `offset`/`total`/`has_more`
+    alimentam as setas de paginação do painel (top 10 por página).
+    """
+    hash_key = map_hash.lower()
+    cache_key = f"lb:{hash_key}:{characteristic}:{difficulty}:{limit}:{offset}"
+    cached = await cache.get_json(cache_key)
+    if cached is not None:
+        payload = cached
+    else:
+        d = (
+            await db.scalars(
+                select(Difficulty)
+                .join(Map, Difficulty.map_id == Map.id)
+                .where(
+                    Map.hash == hash_key,
+                    Map.status == MapStatus.RANKED,
+                    Difficulty.is_ranked.is_(True),
+                    Difficulty.characteristic == characteristic,
+                    Difficulty.name == difficulty,
+                )
+            )
+        ).first()
+        if d is None:
+            raise HTTPException(status_code=404, detail="leaderboard não encontrado")
+        m = await db.get(Map, d.map_id)
+
+        total = (
+            await db.scalars(
+                select(func.count()).select_from(Score).where(Score.difficulty_id == d.id)
+            )
+        ).one()
+
+        rows = (
+            (
+                await db.execute(
+                    select(Score, Player.name, Player.ss_id)
+                    .join(Player, Score.player_id == Player.id)
+                    .where(Score.difficulty_id == d.id)
+                    .order_by(Score.pp.desc().nulls_last())
+                    .offset(offset)
+                    .limit(limit)
+                )
+            )
+            .all()
+        )
+
+        payload = {
+            "hash": m.hash,
+            "map_name": m.name,
+            "difficulty": d.name,
+            "characteristic": d.characteristic,
+            "total_stars": d.total_stars,
+            "difficulty_id": d.id,
+            "total": total,
+            "has_more": offset + len(rows) < total,
+            "scores": [
+                {
+                    "rank": offset + idx + 1,
+                    "player_name": name,
+                    "player_ss_id": ss_id,
+                    "score": s.score,
+                    "acc": s.acc,
+                    "pp": round(s.pp or 0.0, 2),
+                    "full_combo": s.full_combo,
+                    "modifiers": s.modifiers,
+                    "leaderboard_rank": s.leaderboard_rank,
+                }
+                for idx, (s, name, ss_id) in enumerate(rows)
+            ],
+            "player": None,
+        }
+        await cache.set_json(cache_key, payload, ttl=60)
+
+    # rank 1-based do próprio jogador nessa difficulty (fora do cache)
+    if player_id:
+        difficulty_id = payload.get("difficulty_id")
+        player = (await db.scalars(select(Player).where(Player.ss_id == player_id))).first()
+        if player is not None and difficulty_id is not None:
+            own = (
+                await db.scalars(
+                    select(Score).where(
+                        Score.difficulty_id == difficulty_id,
+                        Score.player_id == player.id,
+                    )
+                )
+            ).first()
+            if own is not None and own.pp is not None:
+                higher = (
+                    await db.scalars(
+                        select(func.count())
+                        .select_from(Score)
+                        .where(Score.difficulty_id == difficulty_id, Score.pp > own.pp)
+                    )
+                ).one()
+                payload["player"] = {
+                    "ss_id": player.ss_id,
+                    "name": player.name,
+                    "rank": higher + 1,
+                }
+    return payload
+
+
 @router.get("/maps/{map_hash}")
 async def get_map(map_hash: str, db: AsyncSession = Depends(get_db)) -> dict:
     cache_key = f"map:{map_hash}"

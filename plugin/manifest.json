@@ -1,0 +1,19 @@
+{
+  "author": "BSBR",
+  "description": "Leaderboard do BSBR in-game (bsbr.pro)",
+  "gameVersion": "1.39.1",
+  "icon": "",
+  "id": "BSBRLeaderboard",
+  "name": "BSBR Leaderboard",
+  "version": "0.1.0",
+  "dependsOn": {
+    "BSIPA": "^4.3.0",
+    "BeatSaberMarkupLanguage": "^1.12.4",
+    "SiraUtil": "^3.1.14",
+    "LeaderboardCore": "^1.7.0"
+  },
+  "loadAfter": ["ScoreSaber", "BeatLeader"],
+  "links": {
+    "website": "https://bsbr.pro"
+  }
+}
