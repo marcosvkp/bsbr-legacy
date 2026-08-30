@@ -146,6 +146,8 @@
     <EmbeddedResource Include="manifest.json" LogicalName="BSBRLeaderboard.manifest.json" />
     <EmbeddedResource Include="src\Features\Leaderboards\Adapters\BSBRLeaderboardViewController.bsml"
                       LogicalName="BSBRLeaderboard.Features.Leaderboards.Adapters.BSBRLeaderboardViewController.bsml" />
+    <EmbeddedResource Include="src\Features\Leaderboards\Adapters\BSBRMapInfoViewController.bsml"
+                      LogicalName="BSBRLeaderboard.Features.Leaderboards.Adapters.BSBRMapInfoViewController.bsml" />
   </ItemGroup>
 
   <!-- BSMT: embute o manifest e copia a DLL para o Beat Saber ao buildar -->

@@ -64,6 +64,9 @@ namespace BSBRLeaderboard.Features.Leaderboards.Adapters {
         private string _currentCharacteristic;
         private int _offset;
 
+        /// <summary>Disparado quando o fetch retorna — alimenta o painel de info do mapa.</summary>
+        internal event Action<BSBRLeaderboardResponse> MapInfoUpdated;
+
         [Inject]
         private void Construct(PlatformLeaderboardViewController platformLeaderboardViewController) {
             _platformLeaderboardViewController = platformLeaderboardViewController;
@@ -118,6 +121,10 @@ namespace BSBRLeaderboard.Features.Leaderboards.Adapters {
                 ShowError("Sem resposta do BSBR", "Verifique sua conexão com bsbr.pro");
                 return;
             }
+
+            // repassa os dados do mapa ao painel acima do HIGHSCORES (panelViewController)
+            MapInfoUpdated?.Invoke(response);
+
             if (response.Scores == null || response.Scores.Length == 0) {
                 ShowError("Sem scores BSBR", "Esse mapa não tem scores BSBR nessa dificuldade");
                 return;

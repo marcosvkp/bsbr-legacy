@@ -19,24 +19,29 @@ namespace BSBRLeaderboard.Features.Leaderboards.Adapters {
         private readonly CustomLeaderboardManager _manager;
         private readonly BSBRLeaderboardService _service;
         private readonly BSBRLeaderboardViewController _viewController;
+        private readonly BSBRMapInfoViewController _infoViewController;
 
         internal BSBRCustomLeaderboard(
             CustomLeaderboardManager manager,
             BSBRLeaderboardService service,
-            BSBRLeaderboardViewController viewController) {
+            BSBRLeaderboardViewController viewController,
+            BSBRMapInfoViewController infoViewController) {
             _manager = manager;
             _service = service;
             _viewController = viewController;
+            _infoViewController = infoViewController;
         }
 
         protected override string leaderboardId => "BSBR";
 
-        protected override ViewController panelViewController => null;
+        // painel acima do HIGHSCORES (FloatingScreen do LeaderboardCore) — info do mapa
+        protected override ViewController panelViewController => _infoViewController;
 
         protected override ViewController leaderboardViewController => _viewController;
 
         public void Initialize() {
             _viewController.Init(_service);
+            _viewController.MapInfoUpdated += _infoViewController.SetInfo;
             _manager.Register(this);
         }
 

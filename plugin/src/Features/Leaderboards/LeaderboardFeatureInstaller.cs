@@ -11,6 +11,9 @@ namespace BSBRLeaderboard.Features.Leaderboards {
             Container.Bind<BSBRLeaderboardViewController>()
                 .FromNewComponentAsViewController()
                 .AsSingle();
+            Container.Bind<BSBRMapInfoViewController>()
+                .FromNewComponentAsViewController()
+                .AsSingle();
             // NonLazy: cria o adapter no load do menu p/ registrar a tab no
             // CustomLeaderboardManager (senão nada o resolve e o Initialize() nunca roda)
             Container.BindInterfacesAndSelfTo<BSBRCustomLeaderboard>().AsSingle().NonLazy();

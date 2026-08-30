@@ -40,10 +40,24 @@ namespace BSBRLeaderboard.Features.Leaderboards.Services {
         internal string Hash { get; set; }
         [JsonProperty("map_name")]
         internal string MapName { get; set; }
+        [JsonProperty("mapper")]
+        internal string Mapper { get; set; }
+        [JsonProperty("cover_url")]
+        internal string CoverUrl { get; set; }
+        [JsonProperty("bpm")]
+        internal float? Bpm { get; set; }
         [JsonProperty("difficulty")]
         internal string Difficulty { get; set; }
+        [JsonProperty("characteristic")]
+        internal string Characteristic { get; set; }
         [JsonProperty("total_stars")]
         internal float? TotalStars { get; set; }
+        [JsonProperty("acc_stars")]
+        internal float? AccStars { get; set; }
+        [JsonProperty("tech_stars")]
+        internal float? TechStars { get; set; }
+        [JsonProperty("speed_stars")]
+        internal float? SpeedStars { get; set; }
         [JsonProperty("total")]
         internal int Total { get; set; }
         [JsonProperty("has_more")]
