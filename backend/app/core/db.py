@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -23,6 +24,18 @@ _ensure_sqlite_dir(_settings.database_url)
 
 engine = create_async_engine(_settings.database_url, echo=False, future=True)
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
+
+
+async def dispose_engine() -> None:
+    """Libera o pool do engine global (deve rodar DENTRO do loop da task).
+
+    Tasks do Celery rodam `asyncio.run()` (loop novo por execução). O pool do
+    asyncpg retém conexões do loop anterior e a 2ª execução quebra com
+    "attached to a different loop". Chamar no início de cada task async força
+    o pool a ser recriado no loop atual. O uvicorn (FastAPI) usa um loop único
+    e persistente, então nunca precisa disso.
+    """
+    await engine.dispose()
 
 
 async def get_db() -> AsyncIterator[AsyncSession]:

@@ -26,7 +26,9 @@ def _rating_lines(history_rows: list) -> list[str]:
 
 
 async def run_weekly_batch() -> dict:
-    from app.core.db import SessionLocal  # lookup dinâmico (testes trocam o engine global)
+    from app.core.db import SessionLocal, dispose_engine  # lookup dinâmico (testes trocam o engine global)
+
+    await dispose_engine()  # pool do loop anterior — evita "attached to a different loop"
     from app.integrations.discord import send_batch_report
     from app.models import Batch, BatchKind, RatingHistory
     from app.services.playlist import generate_bsbr_playlist
@@ -93,11 +95,12 @@ def sync_br_daily() -> dict:
     Roda 2x/dia (06:15 e 18:15 UTC) pelo beat; também atualiza o ranking
     após a ingestão para o site refletir scores novos.
     """
-    from app.core.db import SessionLocal
+    from app.core.db import SessionLocal, dispose_engine
     from app.services.ranking import recompute_all_rankings
     from app.services.sync import sync_all_ranked_difficulties
 
     async def _run() -> dict:
+        await dispose_engine()  # pool do loop anterior — evita "attached to a different loop"
         async with SessionLocal() as session:
             stats = await sync_all_ranked_difficulties(session, country="BR", max_pages=2)
             ranking = await recompute_all_rankings(session)
