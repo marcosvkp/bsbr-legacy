@@ -12,7 +12,7 @@ namespace BSBRLeaderboard.Features.Leaderboards.Adapters {
     internal class BSBRLeaderboardEntryDisplay : IBSBRCellDataSource {
 
         private const string CellTemplate = "BSBRLeaderboard.Features.Leaderboards.Adapters.BSBRLeaderboardCell.bsml";
-        private const float CellHeight = 5.5f;
+        private const float CellHeight = 6.5f;
 
         [UIValue("rank-text")]
         private readonly string _rankText;

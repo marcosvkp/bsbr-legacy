@@ -26,9 +26,9 @@ def _rating_lines(history_rows: list) -> list[str]:
 
 
 async def run_weekly_batch() -> dict:
-    from app.core.db import SessionLocal, dispose_engine  # lookup dinâmico (testes trocam o engine global)
+    from app.core.db import task_session_factory  # engine isolado por loop (tasks celery)
 
-    await dispose_engine()  # pool do loop anterior — evita "attached to a different loop"
+    SessionLocal, close_db = await task_session_factory()
     from app.integrations.discord import send_batch_report
     from app.models import Batch, BatchKind, RatingHistory
     from app.services.playlist import generate_bsbr_playlist
@@ -70,6 +70,7 @@ async def run_weekly_batch() -> dict:
         await session.commit()
         stats = dict(batch.stats)
 
+    await close_db()
     await send_batch_report(
         {
             "title": "BSBR — Batch semanal concluído",
@@ -95,21 +96,24 @@ def sync_br_daily() -> dict:
     Roda 2x/dia (06:15 e 18:15 UTC) pelo beat; também atualiza o ranking
     após a ingestão para o site refletir scores novos.
     """
-    from app.core.db import SessionLocal, dispose_engine
+    from app.core.db import task_session_factory
     from app.services.ranking import recompute_all_rankings
     from app.services.sync import sync_all_ranked_difficulties
 
     async def _run() -> dict:
-        await dispose_engine()  # pool do loop anterior — evita "attached to a different loop"
-        async with SessionLocal() as session:
-            stats = await sync_all_ranked_difficulties(session, country="BR", max_pages=2)
-            ranking = await recompute_all_rankings(session)
-            await session.commit()
-            return {
-                "scores_fetched": sum(s.fetched for s in stats),
-                "scores_inserted": sum(s.inserted for s in stats),
-                "difficulties_synced": len(stats),
-                "players_updated": ranking.players_updated,
-            }
+        SessionLocal, close_db = await task_session_factory()
+        try:
+            async with SessionLocal() as session:
+                stats = await sync_all_ranked_difficulties(session, country="BR", max_pages=2)
+                ranking = await recompute_all_rankings(session)
+                await session.commit()
+                return {
+                    "scores_fetched": sum(s.fetched for s in stats),
+                    "scores_inserted": sum(s.inserted for s in stats),
+                    "difficulties_synced": len(stats),
+                    "players_updated": ranking.players_updated,
+                }
+        finally:
+            await close_db()
 
     return asyncio.run(_run())
