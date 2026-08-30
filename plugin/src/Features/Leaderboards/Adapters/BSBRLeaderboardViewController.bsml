@@ -1,8 +1,8 @@
 <bg xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' xsi:noNamespaceSchemaLocation='https://monkeymanboy.github.io/BSML-Docs/BSMLSchema.xsd'>
-  <horizontal id='main-horizontal' horizontal-fit='PreferredSize' vertical-fit='PreferredSize' pref-width='100' pref-height='70' pad-left='7' pad-top='1'>
+  <horizontal id='main-horizontal' horizontal-fit='PreferredSize' vertical-fit='PreferredSize' pref-width='100' pref-height='70' pad-left='7' pad-top='1' child-align='UpperCenter' child-expand-width='false'>
     <vertical horizontal-fit='PreferredSize' vertical-fit='PreferredSize' pref-width='9' pref-height='25' />
-    <vertical active='~scores-active' horizontal-fit='PreferredSize' vertical-fit='PreferredSize' pref-width='80' pref-height='70'>
-      <leaderboard id='leaderboard' cell-size='5.99' />
+    <vertical active='~scores-active' horizontal-fit='PreferredSize' pref-width='80' pref-height='55' child-align='UpperCenter' child-expand-height='false' spacing='0'>
+      <bsbr-list id='leaderboard' contents='leaderboard-contents' pref-number-cells='10' main-cell-size='5.5' />
     </vertical>
     <vertical active='~error-active' horizontal-fit='PreferredSize' vertical-fit='PreferredSize' pref-width='80' pref-height='50' child-align='MiddleCenter' child-expand-width='false' child-expand-height='false' spacing='1'>
       <text text='~error-title' align='Center' font-size='5' italics='true' pref-width='80' pref-height='7' />

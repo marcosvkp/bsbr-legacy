@@ -1,0 +1,19 @@
+<bg xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' xsi:noNamespaceSchemaLocation='https://monkeymanboy.github.io/BSML-Docs/BSMLSchema.xsd'>
+  <horizontal id='row' horizontal-fit='PreferredSize' vertical-fit='PreferredSize' pad-left='2' pad-right='2' spacing='1' child-alignment='MiddleCenter' child-expand-width='false' child-expand-height='false'>
+    <vertical id='rank-col' pref-width='6' child-alignment='MiddleCenter'>
+      <text id='rank-text' text='~rank-text' align='Center' font-size='3' italics='true' />
+    </vertical>
+    <vertical id='name-col' pref-width='32' child-alignment='MiddleCenter'>
+      <text id='name-text' text='~player-name' align='Left' font-size='3' italics='true' overflow-mode='Ellipsis' word-wrapping='false' />
+    </vertical>
+    <vertical id='acc-col' pref-width='12' child-alignment='MiddleCenter'>
+      <text id='acc-text' text='~acc-text' align='Center' font-size='2.8' rich-text='true' />
+    </vertical>
+    <vertical id='pp-col' pref-width='14' child-alignment='MiddleCenter'>
+      <text id='pp-text' text='~pp-text' align='Center' font-size='2.8' rich-text='true' />
+    </vertical>
+    <vertical id='score-col' pref-width='18' child-alignment='MiddleCenter'>
+      <text id='score-text' text='~score-text' align='Right' font-size='2.8' rich-text='true' word-wrapping='false' />
+    </vertical>
+  </horizontal>
+</bg>

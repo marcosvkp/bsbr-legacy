@@ -1,42 +1,35 @@
 using System;
 using System.Collections.Generic;
 using BeatSaberMarkupLanguage.Attributes;
+using BSBRLeaderboard.Features.Leaderboards.Addons;
 using BSBRLeaderboard.Features.Leaderboards.Services;
 using HMUI;
 using IPA.Utilities;
-using TMPro;
-using UnityEngine;
 using Zenject;
 
 namespace BSBRLeaderboard.Features.Leaderboards.Adapters {
 
     /// <summary>
-    /// Painel do leaderboard BSBR — tabela nativa do jogo via BSML.
-    ///
-    /// Correções de runtime (problemas vistos no jogo):
-    /// 1. O LeaderboardTableCell nativo nasce com richText desligado — sem isso
-    ///    os tags &lt;color&gt; do nome aparecem como texto cru. Ativamos via
-    ///    didReloadDataEvent da TableView interna (mesmo approach do pc-mod).
-    /// 2. O PlatformLeaderboardViewController mantém o LoadingControl nativo
-    ///    ativo por baixo do nosso painel — escondemos no DidActivate E a cada
-    ///    reload (o jogo o re-mostra ao trocar de mapa).
-    /// 3. Paginação: top 10 por página, com setas cima/baixo (offset no backend).
+    /// Painel do leaderboard BSBR — lista de células BSML customizadas (port do
+    /// AccSaber), substituindo o &lt;leaderboard&gt; nativo. Isso elimina:
+    /// 1. Rich text literal (células são templates BSML com richText nativo).
+    /// 2. Loading duplicado (sem LeaderboardTableView nativa).
+    /// O LoadingControl nativo da plataforma ainda é escondido (defensivo).
+    /// Paginação: top 10 por página com setas cima/baixo (offset no backend).
     /// </summary>
-    internal class BSBRLeaderboardViewController : BeatSaberMarkupLanguage.ViewControllers.BSMLAutomaticViewController {
+    [ViewDefinition("BSBRLeaderboard.Features.Leaderboards.Adapters.BSBRLeaderboardViewController.bsml")]
+    internal class BSBRLeaderboardViewController : BSBRSafeAutomaticViewController {
 
         private const int PageSize = 10;
-
-        private static readonly FieldAccessor<LeaderboardTableView, TableView>.Accessor InnerTable =
-            FieldAccessor<LeaderboardTableView, TableView>.GetAccessor("_tableView");
-
-        private static readonly FieldAccessor<LeaderboardTableCell, TextMeshProUGUI>.Accessor PlayerNameText =
-            FieldAccessor<LeaderboardTableCell, TextMeshProUGUI>.GetAccessor("_playerNameText");
 
         private static readonly FieldAccessor<PlatformLeaderboardViewController, LoadingControl>.Accessor PlatformLoadingControl =
             FieldAccessor<PlatformLeaderboardViewController, LoadingControl>.GetAccessor("_loadingControl");
 
         [UIComponent("leaderboard")]
-        private readonly LeaderboardTableView _leaderboard = null;
+        private readonly BSBRCellListTableData _leaderboard = null;
+
+        [UIValue("leaderboard-contents")]
+        private List<IBSBRCellDataSource> LeaderboardContents { get; set; } = new();
 
         [UIValue("scores-active")]
         private bool ScoresActive { get; set; }
@@ -58,7 +51,6 @@ namespace BSBRLeaderboard.Features.Leaderboards.Adapters {
 
         private BSBRLeaderboardService _service;
         private PlatformLeaderboardViewController _platformLeaderboardViewController;
-        private TableView _innerTable;
         private string _currentHash;
         private string _currentDifficulty;
         private string _currentCharacteristic;
@@ -130,21 +122,12 @@ namespace BSBRLeaderboard.Features.Leaderboards.Adapters {
                 return;
             }
 
-            var rows = new List<LeaderboardTableView.ScoreData>();
-            var myScoreIndex = -1;
+            var contents = new List<IBSBRCellDataSource>();
             for (int i = 0; i < response.Scores.Length; i++) {
-                var row = response.Scores[i];
-                bool isMine = response.Player != null && row.PlayerSsId == response.Player.SsId;
-                if (isMine) {
-                    myScoreIndex = i;
-                }
-                rows.Add(new LeaderboardTableView.ScoreData(
-                    (int)row.Score,
-                    FormatRow(row),
-                    row.Rank,
-                    row.FullCombo
-                ));
+                contents.Add(new BSBRLeaderboardEntryDisplay(response.Scores[i], response.Player));
             }
+
+            LeaderboardContents = contents;
             ScoresActive = true;
             UpEnabled = _offset > 0;
             DownEnabled = response.HasMore;
@@ -152,9 +135,9 @@ namespace BSBRLeaderboard.Features.Leaderboards.Adapters {
             NotifyPropertyChanged(nameof(ErrorActive));
             NotifyPropertyChanged(nameof(UpEnabled));
             NotifyPropertyChanged(nameof(DownEnabled));
+
             if (_leaderboard != null) {
-                _leaderboard.SetScores(rows, myScoreIndex);
-                BindRichTextReload();
+                _leaderboard.Data = contents;  // setter dispara ReloadTemplates
             }
             HidePlatformLoading();
         }
@@ -173,7 +156,7 @@ namespace BSBRLeaderboard.Features.Leaderboards.Adapters {
             NotifyPropertyChanged(nameof(ErrorTitle));
             NotifyPropertyChanged(nameof(ErrorText));
             if (_leaderboard != null) {
-                _leaderboard.SetScores(new List<LeaderboardTableView.ScoreData>(), -1);
+                _leaderboard.Data = new List<IBSBRCellDataSource>();  // setter limpa as células
             }
             HidePlatformLoading();
         }
@@ -184,55 +167,6 @@ namespace BSBRLeaderboard.Features.Leaderboards.Adapters {
             }
             var loadingControl = PlatformLoadingControl(ref _platformLeaderboardViewController);
             loadingControl?.Hide();
-        }
-
-        // Ativa richText nas células do nome do jogador (senão <color> vira texto cru)
-        private void BindRichTextReload() {
-            if (_leaderboard == null) {
-                return;
-            }
-            var leaderboard = _leaderboard;
-            if (_innerTable == null) {
-                _innerTable = InnerTable(ref leaderboard);
-            }
-            if (_innerTable == null) {
-                return;
-            }
-            _innerTable.didReloadDataEvent -= TableDidReloadData;
-            _innerTable.didReloadDataEvent += TableDidReloadData;
-            ConfigureVisibleCells();
-        }
-
-        private void TableDidReloadData(TableView tableView) => ConfigureVisibleCells();
-
-        private void ConfigureVisibleCells() {
-            if (_innerTable == null) {
-                return;
-            }
-            foreach (TableCell cell in _innerTable.visibleCells) {
-                if (cell is LeaderboardTableCell leaderboardCell) {
-                    EnableRichText(leaderboardCell);
-                }
-            }
-        }
-
-        private static void EnableRichText(LeaderboardTableCell cell) {
-            var playerNameText = PlayerNameText(ref cell);
-            if (playerNameText == null) {
-                return;
-            }
-            if (!playerNameText.richText) {
-                playerNameText.richText = true;
-            }
-            // reaplica o texto para re-renderizar os tags
-            playerNameText.text = playerNameText.text;
-            playerNameText.SetVerticesDirty();
-        }
-
-        private static string FormatRow(BSBRScoreRow row) {
-            var acc = row.Acc.HasValue ? $"<color=#98ff00>{row.Acc.Value * 100f:0.00}%</color>" : "<color=#888888>—</color>";
-            var pp = row.Pp > 0 ? $"<color=#6772E5>{row.Pp:0.00}<size=70%>pp</size></color>" : "";
-            return $"<color=#ffffff>{row.PlayerName}</color>  {acc}  {pp}".Trim();
         }
     }
 }
