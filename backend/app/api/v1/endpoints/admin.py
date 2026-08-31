@@ -5,6 +5,8 @@
 - Rodar batch semanal manualmente.
 """
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import func, or_, select
@@ -14,7 +16,17 @@ from sqlalchemy.orm import joinedload
 from app.core.cache import cache
 from app.core.config import get_settings
 from app.core.db import get_db
-from app.models import Batch, Difficulty, Map, MapStatus, ReweightSuggestion, SuggestionStatus
+from app.models import (
+    Batch,
+    Difficulty,
+    Map,
+    MapStatus,
+    MapSuggestion,
+    MapSuggestionStatus,
+    Player,
+    ReweightSuggestion,
+    SuggestionStatus,
+)
 from app.services.qualification import approve_map, qualify_source
 from app.services.reweight.service import (
     apply_suggestion,
@@ -22,6 +34,7 @@ from app.services.reweight.service import (
     preview_suggestions,
     reject_suggestion,
 )
+from app.services.suggestions import create_map_from_suggestion
 
 from .oauth import admin_session_ok
 
@@ -447,3 +460,105 @@ async def list_batches(
             for b in rows
         ],
     }
+
+
+# ── Sugestões de mapas (jogadores logados) ───────────────────────────────
+
+
+def _suggestion_item(s: MapSuggestion, player: Player | None) -> dict:
+    return {
+        "id": s.id,
+        "ss_id": s.ss_id,
+        "hash": s.hash,
+        "beatsaver_id": s.beatsaver_id,
+        "name": s.name,
+        "mapper": s.mapper,
+        "bpm": s.bpm,
+        "cover_url": s.cover_url,
+        "note": s.note,
+        "status": s.status.value,
+        "created_at": s.created_at.isoformat() if s.created_at else None,
+        "reviewed_at": s.reviewed_at.isoformat() if s.reviewed_at else None,
+        "player_name": player.name if player else None,
+        "player_avatar": player.avatar_url if player else None,
+        "player_country": player.country if player else None,
+    }
+
+
+@router.get("/suggestions")
+async def list_map_suggestions(
+    status: str | None = Query(None, description="pending | approved | rejected"),
+    limit: int = Query(12, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    _: None = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Sugestões de mapas com o jogador que sugeriu — revisão paginada."""
+    filters = []
+    if status:
+        try:
+            filters.append(MapSuggestion.status == MapSuggestionStatus(status))
+        except ValueError:
+            raise HTTPException(status_code=422, detail="status inválido")
+    total = (
+        await db.scalar(select(func.count()).select_from(MapSuggestion).where(*filters))
+    ) or 0
+    rows = (
+        await db.execute(
+            select(MapSuggestion, Player)
+            .join(Player, Player.ss_id == MapSuggestion.ss_id, isouter=True)
+            .where(*filters)
+            .order_by(MapSuggestion.created_at.desc(), MapSuggestion.id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+    ).all()
+    return {
+        "items": [_suggestion_item(s, p) for s, p in rows],
+        "total": total,
+        "page": offset // limit,
+        "page_size": limit,
+    }
+
+
+@router.post("/suggestions/{suggestion_id}/approve")
+async def approve_map_suggestion(
+    suggestion_id: int,
+    _: None = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Aprova a sugestão: cria um Map candidate SEM ML (metadata já salva)."""
+    suggestion = await db.get(MapSuggestion, suggestion_id)
+    if suggestion is None:
+        raise HTTPException(status_code=404, detail="sugestão não encontrada")
+    if suggestion.status != MapSuggestionStatus.PENDING:
+        raise HTTPException(status_code=422, detail="sugestão já revisada")
+    exists = await db.scalar(select(Map.id).where(Map.hash == suggestion.hash).limit(1))
+    if exists is not None:
+        raise HTTPException(status_code=409, detail="já existe um mapa com esse hash")
+
+    created = await create_map_from_suggestion(db, suggestion)
+    suggestion.status = MapSuggestionStatus.APPROVED
+    suggestion.reviewed_at = datetime.now(timezone.utc)
+    suggestion.reviewed_by = "admin"
+    await db.commit()
+    await cache.invalidate_prefix("maps:")
+    return {"id": suggestion.id, "status": "approved", "map_id": created.id}
+
+
+@router.post("/suggestions/{suggestion_id}/reject")
+async def reject_map_suggestion(
+    suggestion_id: int,
+    _: None = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    suggestion = await db.get(MapSuggestion, suggestion_id)
+    if suggestion is None:
+        raise HTTPException(status_code=404, detail="sugestão não encontrada")
+    if suggestion.status != MapSuggestionStatus.PENDING:
+        raise HTTPException(status_code=422, detail="sugestão já revisada")
+    suggestion.status = MapSuggestionStatus.REJECTED
+    suggestion.reviewed_at = datetime.now(timezone.utc)
+    suggestion.reviewed_by = "admin"
+    await db.commit()
+    return {"id": suggestion.id, "status": "rejected"}
