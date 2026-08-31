@@ -26,6 +26,7 @@ from app.models import (
     Player,
     ReweightSuggestion,
     SuggestionStatus,
+    WebhookConfig,
 )
 from app.services.qualification import approve_map, qualify_source
 from app.services.reweight.service import (
@@ -562,3 +563,82 @@ async def reject_map_suggestion(
     suggestion.reviewed_by = "admin"
     await db.commit()
     return {"id": suggestion.id, "status": "rejected"}
+
+
+# ── Webhooks do Discord (reweight) ───────────────────────────────────────
+
+
+def _webhook_item(w: WebhookConfig) -> dict:
+    return {
+        "id": w.id,
+        "url": w.url,
+        "label": w.label,
+        "enabled": w.enabled,
+        "created_at": w.created_at.isoformat() if w.created_at else None,
+    }
+
+
+class WebhookRequest(BaseModel):
+    url: str
+    label: str | None = None
+
+
+class WebhookPatch(BaseModel):
+    enabled: bool
+
+
+@router.get("/webhooks")
+async def list_webhooks(
+    _: None = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    rows = (await db.scalars(select(WebhookConfig).order_by(WebhookConfig.id))).all()
+    return {"items": [_webhook_item(w) for w in rows]}
+
+
+@router.post("/webhooks", status_code=201)
+async def create_webhook(
+    body: WebhookRequest,
+    _: None = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    url = body.url.strip()
+    if not url.startswith("http"):
+        raise HTTPException(status_code=422, detail="URL inválida")
+    exists = await db.scalar(select(WebhookConfig.id).where(WebhookConfig.url == url).limit(1))
+    if exists is not None:
+        raise HTTPException(status_code=409, detail="webhook já cadastrado")
+    webhook = WebhookConfig(url=url, label=(body.label or "").strip() or None)
+    db.add(webhook)
+    await db.commit()
+    await db.refresh(webhook)
+    return _webhook_item(webhook)
+
+
+@router.patch("/webhooks/{webhook_id}")
+async def patch_webhook(
+    webhook_id: int,
+    body: WebhookPatch,
+    _: None = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    webhook = await db.get(WebhookConfig, webhook_id)
+    if webhook is None:
+        raise HTTPException(status_code=404, detail="webhook não encontrado")
+    webhook.enabled = body.enabled
+    await db.commit()
+    await db.refresh(webhook)
+    return _webhook_item(webhook)
+
+
+@router.delete("/webhooks/{webhook_id}", status_code=204)
+async def delete_webhook(
+    webhook_id: int,
+    _: None = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    webhook = await db.get(WebhookConfig, webhook_id)
+    if webhook is None:
+        raise HTTPException(status_code=404, detail="webhook não encontrado")
+    await db.delete(webhook)
+    await db.commit()
