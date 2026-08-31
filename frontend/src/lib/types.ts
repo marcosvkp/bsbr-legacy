@@ -492,3 +492,17 @@ export interface MapSuggestionActionResponse {
   status: string;
   map_id?: number;
 }
+
+/** Sugestão exibida na aba "Comunidade" de /mapas (endpoint público). */
+export interface CommunitySuggestion extends MapSuggestion {
+  player_name: string | null;
+  player_avatar: string | null;
+  player_country: string | null;
+}
+
+export interface CommunitySuggestionsResponse {
+  items: CommunitySuggestion[];
+  total: number;
+  page: number;
+  page_size: number;
+}

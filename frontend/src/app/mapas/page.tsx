@@ -3,15 +3,23 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { SmartImg } from "@/components/smart-img";
 import { getJson } from "@/lib/api";
-import type { MapSummary, MapsResponse, QualificationResponse } from "@/lib/types";
+import type {
+  CommunitySuggestion,
+  CommunitySuggestionsResponse,
+  MapSummary,
+  MapsResponse,
+  QualificationResponse,
+} from "@/lib/types";
 import { formatInt, formatNumber } from "@/lib/format";
 import { BackendOffline, EmptyState } from "@/components/empty-state";
 import { Pagination } from "@/components/pagination";
 import { SubStats } from "@/components/sub-stats";
 import { PlaylistDownload } from "@/components/playlist-download";
 import { SuggestMap } from "@/components/suggest-map";
+import { PlayerAvatar } from "@/components/player-avatar";
 import { MapsFilter } from "./maps-filter";
 import { SortSelect } from "./sort-select";
+import { CommunitySearch } from "./community-search";
 
 export const metadata: Metadata = {
   title: "Mapas",
@@ -20,6 +28,7 @@ export const metadata: Metadata = {
 const PAGE_SIZE = 24;
 const SORTS: Record<string, true> = { stars: true, recent: true, name: true };
 const QUALIFICATION_TAB = "qualification";
+const COMMUNITY_TAB = "community";
 
 function parseSort(value: string | undefined): string {
   return value !== undefined && SORTS[value] ? value : "stars";
@@ -253,10 +262,97 @@ function QualificationList({ data }: { data: QualificationResponse }) {
   );
 }
 
+const COMMUNITY_STATUS: Record<string, { label: string; badge: string }> = {
+  pending: { label: "Pendente", badge: "border-warning/40 bg-warning/10 text-warning" },
+  approved: { label: "Aprovada", badge: "border-secondary/40 bg-secondary/10 text-secondary" },
+  rejected: { label: "Recusada", badge: "border-border-subtle bg-surface-2 text-muted" },
+};
+
+function CommunityList({ data }: { data: CommunitySuggestionsResponse }) {
+  if (data.items.length === 0) {
+    return (
+      <EmptyState
+        title="Nenhuma sugestão"
+        description="Os mapas sugeridos pela comunidade aparecem aqui. Entre com Steam e sugira um mapa!"
+      />
+    );
+  }
+  return (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      {data.items.map((item) => {
+        const status = COMMUNITY_STATUS[item.status] ?? COMMUNITY_STATUS.pending;
+        return (
+          <div
+            key={item.id}
+            className="flex flex-col overflow-hidden rounded-xl border border-border-subtle bg-surface shadow-sm"
+          >
+            <div className="relative overflow-hidden">
+              <SmartImg
+                src={item.cover_url}
+                alt={`Capa de ${item.name}`}
+                className="aspect-[16/9] w-full bg-surface-2 object-cover"
+                fallback={
+                  <div className="flex aspect-[16/9] w-full items-center justify-center bg-surface-2 text-muted/40">
+                    <svg
+                      aria-hidden="true"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      className="h-10 w-10"
+                    >
+                      <circle cx="7" cy="17" r="3" />
+                      <circle cx="18" cy="15" r="3" />
+                      <path d="M10 17V6l11-2v11" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </div>
+                }
+              />
+              <span
+                className={`absolute right-3 top-3 rounded-md border px-2 py-0.5 text-[10px] font-black uppercase tracking-widest backdrop-blur-sm ${status.badge}`}
+              >
+                {status.label}
+              </span>
+            </div>
+            <div className="flex flex-1 flex-col gap-1.5 p-3.5">
+              <h3 className="line-clamp-2 text-[15px] font-bold leading-snug tracking-tight text-foreground">
+                {item.name}
+              </h3>
+              <p className="truncate text-xs text-muted">
+                {item.mapper ?? "Mapper desconhecido"}
+                {item.bpm != null ? (
+                  <>
+                    <span className="mx-1.5 text-muted/50">·</span>
+                    {formatInt(item.bpm)} BPM
+                  </>
+                ) : null}
+              </p>
+              <div className="mt-auto flex items-center gap-1.5 pt-1.5 text-xs text-muted">
+                <PlayerAvatar
+                  name={item.player_name ?? "?"}
+                  avatarUrl={item.player_avatar}
+                  size={18}
+                />
+                <span className="truncate">{item.player_name ?? "Jogador"}</span>
+                {item.note ? (
+                  <span className="ml-auto shrink-0 truncate italic text-muted/60" title={item.note}>
+                    “{item.note}”
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default async function MapsPage(props: PageProps<"/mapas">) {
   const searchParams = await props.searchParams;
   const tab = Array.isArray(searchParams.tab) ? searchParams.tab[0] : searchParams.tab;
   const isQualification = tab === QUALIFICATION_TAB;
+  const isCommunity = tab === COMMUNITY_TAB;
   const sort = parseSort(
     Array.isArray(searchParams.sort) ? searchParams.sort[0] : searchParams.sort,
   );
@@ -268,10 +364,15 @@ export default async function MapsPage(props: PageProps<"/mapas">) {
 
   let data: MapsResponse | null = null;
   let qualification: QualificationResponse | null = null;
+  let community: CommunitySuggestionsResponse | null = null;
   let offline = false;
   try {
     if (isQualification) {
       qualification = await getJson<QualificationResponse>("/maps/qualification");
+    } else if (isCommunity) {
+      const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) });
+      if (q) params.set("q", q);
+      community = await getJson<CommunitySuggestionsResponse>(`/suggestions?${params.toString()}`);
     } else {
       const params = new URLSearchParams({ sort, page: String(page), page_size: String(PAGE_SIZE) });
       if (q) params.set("q", q);
@@ -286,15 +387,27 @@ export default async function MapsPage(props: PageProps<"/mapas">) {
     <div role="tablist" aria-label="Catálogo de mapas" className="flex w-fit gap-1 rounded-lg border border-border-subtle bg-surface p-1">
       <Link
         role="tab"
-        aria-selected={!isQualification}
+        aria-selected={!isQualification && !isCommunity}
         href="/mapas"
         className={`rounded-md px-4 py-1.5 text-sm font-bold transition-colors ${
-          !isQualification
+          !isQualification && !isCommunity
             ? "bg-secondary text-white shadow-[0_0_12px_var(--glow-secondary)]"
             : "text-muted hover:text-foreground"
         }`}
       >
         Rankeados
+      </Link>
+      <Link
+        role="tab"
+        aria-selected={isCommunity}
+        href="/mapas?tab=community"
+        className={`rounded-md px-4 py-1.5 text-sm font-bold transition-colors ${
+          isCommunity
+            ? "bg-secondary text-white shadow-[0_0_12px_var(--glow-secondary)]"
+            : "text-muted hover:text-foreground"
+        }`}
+      >
+        Comunidade
       </Link>
       <Link
         role="tab"
@@ -316,21 +429,34 @@ export default async function MapsPage(props: PageProps<"/mapas">) {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-3xl font-extrabold uppercase tracking-tight">
-            Mapas <span className="text-secondary">{isQualification ? "em qualificação" : "rankeados"}</span>
+            Mapas{" "}
+            <span className="text-secondary">
+              {isQualification ? "em qualificação" : isCommunity ? "da comunidade" : "rankeados"}
+            </span>
           </h1>
           <p className="mt-1 text-sm text-muted">
             {isQualification
               ? "Sugeridos pela comunidade e analisados pelo ML — aguardando staff"
-              : `${formatInt(data?.total ?? 0)} mapas no catálogo brasileiro`}
+              : isCommunity
+                ? `${formatInt(community?.total ?? 0)} mapas sugeridos pela comunidade`
+                : `${formatInt(data?.total ?? 0)} mapas no catálogo brasileiro`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          {!isQualification ? <SuggestMap /> : null}
-          {!isQualification && data ? <PlaylistDownload total={data.total} /> : null}
+          {!isQualification && !isCommunity ? <SuggestMap /> : null}
+          {!isQualification && !isCommunity && data ? (
+            <PlaylistDownload total={data.total} />
+          ) : null}
         </div>
       </div>
 
-      {!isQualification ? (
+      {isCommunity ? (
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <Suspense fallback={null}>
+            <CommunitySearch initialQuery={q} />
+          </Suspense>
+        </div>
+      ) : !isQualification ? (
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <Suspense fallback={null}>
             <MapsFilter initialQuery={q} minStars={minStars} />
@@ -344,9 +470,39 @@ export default async function MapsPage(props: PageProps<"/mapas">) {
       {tabs}
 
       {offline ? (
-        <BackendOffline what={isQualification ? "a fila de qualificação" : "os mapas rankeados"} />
+        <BackendOffline
+          what={
+            isQualification
+              ? "a fila de qualificação"
+              : isCommunity
+                ? "as sugestões da comunidade"
+                : "os mapas rankeados"
+          }
+        />
       ) : isQualification ? (
         <QualificationList data={qualification!} />
+      ) : isCommunity ? (
+        community!.items.length === 0 ? (
+          <EmptyState
+            title={q ? "Nenhuma sugestão encontrada" : "Nenhuma sugestão ainda"}
+            description={
+              q
+                ? "Ajuste a busca para encontrar o que procura."
+                : "Os mapas sugeridos pela comunidade aparecem aqui. Entre com Steam e sugira um mapa!"
+            }
+          />
+        ) : (
+          <>
+            <CommunityList data={community!} />
+            <Pagination
+              page={community!.page}
+              pageSize={community!.page_size}
+              total={community!.total}
+              basePath="/mapas"
+              params={{ tab: "community", q: q || undefined }}
+            />
+          </>
+        )
       ) : data!.items.length === 0 ? (
         <EmptyState
           title={q || minStars > 0 ? "Nenhum mapa encontrado" : page > 1 ? "Sem mapas nesta página" : "Nenhum mapa rankeado"}
