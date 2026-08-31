@@ -323,8 +323,8 @@ function AdminDashboard() {
     }
   }
 
-  async function runQualify() {
-    if (!token || !qualifySource.trim()) return;
+  async function runQualifyWith(source: string) {
+    if (!token || !source.trim()) return;
     setQualifyLoading(true);
     setQualifyError(null);
     setQualifyInvalid(false);
@@ -335,7 +335,7 @@ function AdminDashboard() {
     try {
       const preview = await postJson<QualifyPreviewResponse>(
         "/admin/maps/qualify",
-        { source: qualifySource.trim() },
+        { source: source.trim() },
         { headers: { "X-Admin-Token": token } },
       );
       setQualifyPreview(preview);
@@ -362,6 +362,19 @@ function AdminDashboard() {
     } finally {
       setQualifyLoading(false);
     }
+  }
+
+  async function runQualify() {
+    await runQualifyWith(qualifySource);
+  }
+
+  /** Candidato vindo de sugestão aprovada (sem difficulties): roda o ML nele. */
+  async function runQualifyForCandidate(hash: string) {
+    setQualifySource(hash);
+    await runQualifyWith(hash);
+    document
+      .getElementById("qualify-entry")
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   async function runQueueFor(mapId: number) {
@@ -787,7 +800,7 @@ function AdminDashboard() {
 
       <div hidden={tab !== "qualification"} className="flex flex-col gap-6">
       {/* Qualificação de mapas (nova batch) */}
-      <Card>
+      <Card id="qualify-entry">
         <CardHeader>
           <CardTitle>Entrada de mapas (qualificação)</CardTitle>
         </CardHeader>
@@ -1016,14 +1029,25 @@ function AdminDashboard() {
                                 Aprovar
                               </Button>
                             ) : cand.status === "candidate" ? (
-                              <Button
-                                size="sm"
-                                onClick={() => runQueueFor(cand.id)}
-                                disabled={!token || queueLoading}
-                              >
-                                {queueLoading ? <Spinner size={12} /> : null}
-                                Colocar na fila
-                              </Button>
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  onClick={() => runQualifyForCandidate(cand.hash)}
+                                  disabled={!token || qualifyLoading}
+                                >
+                                  {qualifyLoading ? <Spinner size={12} /> : null}
+                                  Analisar com o ML
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  onClick={() => runQueueFor(cand.id)}
+                                  disabled={!token || queueLoading}
+                                >
+                                  {queueLoading ? <Spinner size={12} /> : null}
+                                  Colocar na fila
+                                </Button>
+                              </>
                             ) : null}
                             {!isRankedMap ? (
                               <Button
@@ -1047,7 +1071,9 @@ function AdminDashboard() {
                               Dificuldades
                             </span>
                             {cand.difficulties.length === 0 ? (
-                              <span className="text-xs text-muted">sem análise</span>
+                              <span className="text-xs text-warning">
+                                sem análise — clique em "Analisar com o ML"
+                              </span>
                             ) : (
                               cand.difficulties.map((d) => {
                                 const excluded = candExcluded.includes(d.name);
