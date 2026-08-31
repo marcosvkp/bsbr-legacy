@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 
 import { API_BASE, ApiError, getJson, postJson } from "@/lib/api";
 import type { MapSuggestion, MeResponse, SuggestionsMeResponse } from "@/lib/types";
@@ -145,6 +146,12 @@ export function SuggestMap() {
                 Cola o link do BeatSaver (ou o ID/hash do mapa). O mapa entra na fila de
                 qualificação — você pode ter até <strong className="text-foreground">{maxActive} ativas</strong>.
               </p>
+              <Link
+                href="/sobre#criteria"
+                className="text-sm font-semibold text-secondary underline-offset-2 transition-colors hover:underline"
+              >
+                Antes de sugerir, confira os critérios de qualificação (Criteria Issues)
+              </Link>
 
               <label className="flex flex-col gap-1.5">
                 <span className="text-xs font-bold uppercase tracking-wide text-muted">

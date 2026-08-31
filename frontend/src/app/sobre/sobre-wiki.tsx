@@ -1,7 +1,7 @@
 "use client";
 
 import type { MouseEvent, ReactNode } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatNumber } from "@/lib/format";
@@ -376,6 +376,215 @@ function AgregacaoSection() {
   );
 }
 
+function CriteriaSection() {
+  const blocks: Array<{
+    letter: string;
+    title: string;
+    rules: Array<{ label: string; detail: string; negative?: boolean }>;
+  }> = [
+    {
+      letter: "A",
+      title: "Sem modificador obrigatório",
+      rules: [
+        {
+          label: "Sem modificadores forçados",
+          detail:
+            "O mapa não pode obrigar o jogador a usar um modificador (ex.: nomiss, noobstacles) para ser jogável.",
+        },
+        {
+          label: "Sem mismaps",
+          detail: "Não pode haver “mismaps” — patterns que não seguem a intenção da música de forma não intencional.",
+          negative: true,
+        },
+        {
+          label: "Formato V3 (ou inferior)",
+          detail: "O mapa deve estar no formato de diffs V3 ou mais antigo.",
+        },
+        {
+          label: "Chains curtos",
+          detail: "“Chains” não podem durar mais que 1 segundo.",
+          negative: true,
+        },
+      ],
+    },
+    {
+      letter: "B",
+      title: "Notas",
+      rules: [
+        {
+          label: "Sem notas intercaladas",
+          detail: "Notas não podem ser intercaladas de forma que quebrem o fluxo do pattern.",
+          negative: true,
+        },
+        {
+          label: "Respeitar o swing",
+          detail: "Notas não podem entrar no caminho de outro swing (mesmo braço / mesmo ritmo).",
+          negative: true,
+        },
+      ],
+    },
+    {
+      letter: "C",
+      title: "Paredes",
+      rules: [
+        {
+          label: "Sem dano forçado",
+          detail: "Paredes não podem forçar o jogador a tomar dano.",
+          negative: true,
+        },
+        {
+          label: "Sem saída da lane",
+          detail: "Paredes não podem forçar o jogador a sair da lane 2-3.",
+          negative: true,
+        },
+      ],
+    },
+    {
+      letter: "D",
+      title: "Bombas",
+      rules: [
+        {
+          label: "Fora do caminho do swing",
+          detail: "Bombas não podem entrar no caminho de um swing.",
+          negative: true,
+        },
+        {
+          label: "Luzes mínimas",
+          detail: "Bombas devem estar numa seção do mapa com luzes mínimas.",
+        },
+      ],
+    },
+  ];
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Critérios de qualificação · Criteria Issues</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3 text-sm leading-relaxed text-muted">
+        <p>
+          Antes de um mapa entrar no ranking, ele é revisado contra estes critérios. Qualquer
+          violação é um <strong className="text-foreground">criteria issue</strong> — o mapa pode
+          ser recusado na qualificação ou ter a dificuldade corrigida pelo mapper. Siga a lista
+          abaixo ao sugerir ou mapear para o BSBR.
+        </p>
+
+        <h3 className="font-display text-base font-extrabold uppercase tracking-tight text-foreground">
+          1 · Gameplay
+        </h3>
+        {blocks.map((block) => (
+          <div key={block.letter} className="flex flex-col gap-1.5">
+            <p className="font-bold text-foreground">
+              {block.letter} · {block.title}
+            </p>
+            <ul className="flex flex-col gap-1.5 pl-4">
+              {block.rules.map((rule) => (
+                <li key={rule.label} className="flex gap-2">
+                  <span
+                    className={`mt-1 shrink-0 text-[10px] font-black ${
+                      rule.negative ? "text-danger" : "text-secondary"
+                    }`}
+                  >
+                    {rule.negative ? "✗" : "✓"}
+                  </span>
+                  <span>
+                    <strong className={rule.negative ? "text-danger" : "text-foreground"}>
+                      {rule.label}
+                    </strong>
+                    {rule.detail ? ` — ${rule.detail}` : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+
+        <h3 className="mt-2 font-display text-base font-extrabold uppercase tracking-tight text-foreground">
+          2 · Tempo
+        </h3>
+        <ul className="flex flex-col gap-1.5 pl-4">
+          <li className="flex gap-2">
+            <span className="mt-1 shrink-0 text-[10px] font-black text-secondary">✓</span>
+            <span>
+              <strong className="text-foreground">Consistência</strong> — sons que são mapeados
+              uma vez, se repetidos, devem ser mapeados de novo com um pattern igual ou similar.
+              O limite de vezes que patterns distintos podem ser ignorados é{" "}
+              <strong className="text-foreground">3</strong>.
+            </span>
+          </li>
+          <li className="flex gap-2">
+            <span className="mt-1 shrink-0 text-[10px] font-black text-secondary">✓</span>
+            <span>
+              <strong className="text-foreground">Overmapping e downmapping</strong> — ambos são
+              permitidos.
+            </span>
+          </li>
+        </ul>
+
+        <h3 className="mt-2 font-display text-base font-extrabold uppercase tracking-tight text-foreground">
+          3 · Formatação
+        </h3>
+        <ul className="flex flex-col gap-1.5 pl-4">
+          <li className="flex gap-2">
+            <span className="mt-1 shrink-0 text-[10px] font-black text-secondary">✓</span>
+            <span>
+              <strong className="text-foreground">Metadados corretos</strong> — todas as
+              informações do mapa devem estar corretas; se uma informação necessária não for
+              encontrada, use o termo <strong className="text-foreground">“Unknown”</strong> ou{" "}
+              <strong className="text-foreground">“Desconhecido”</strong>.
+            </span>
+          </li>
+          <li className="flex gap-2">
+            <span className="mt-1 shrink-0 text-[10px] font-black text-secondary">✓</span>
+            <span>
+              <strong className="text-foreground">BPM</strong> — o BPM usado deve ser múltiplo ou
+              igual ao BPM correto da música.
+            </span>
+          </li>
+          <li className="flex gap-2">
+            <span className="mt-1 shrink-0 text-[10px] font-black text-secondary">✓</span>
+            <span>
+              <strong className="text-foreground">Nomes de dificuldade</strong> — não podem conter
+              emojis ou palavras de caráter explícito, e devem seguir o padrão de caracteres{" "}
+              <strong className="text-foreground">ASCII</strong>.
+            </span>
+          </li>
+          <li className="flex gap-2">
+            <span className="mt-1 shrink-0 text-[10px] font-black text-secondary">✓</span>
+            <span>
+              <strong className="text-foreground">Sub-nome</strong> — o sub-nome da música deve
+              conter informações de remixes e modificações (ex.: “Sped. up”, “Ft.”, “Remix”).
+            </span>
+          </li>
+        </ul>
+
+        <h3 className="mt-2 font-display text-base font-extrabold uppercase tracking-tight text-foreground">
+          4 · Outros
+        </h3>
+        <ul className="flex flex-col gap-1.5 pl-4">
+          <li className="flex gap-2">
+            <span className="mt-1 shrink-0 text-[10px] font-black text-secondary">✓</span>
+            <span>
+              <strong className="text-foreground">Iluminação</strong> — o mapa deve ter uma
+              quantidade de luz suficiente durante as partes que contêm notas (não é o mínimo de
+              qualidade de luz). <strong className="text-danger">Luzes automáticas (Lolighter)
+              não são permitidas.</strong>
+            </span>
+          </li>
+          <li className="flex gap-2">
+            <span className="mt-1 shrink-0 text-[10px] font-black text-secondary">✓</span>
+            <span>
+              <strong className="text-foreground">Duração</strong> — o mapa não pode ter mais que{" "}
+              <strong className="text-foreground">1 hora</strong> nem menos que{" "}
+              <strong className="text-foreground">20 segundos</strong>.
+            </span>
+          </li>
+        </ul>
+      </CardContent>
+    </Card>
+  );
+}
+
 function DiscordSection() {
   return (
     <Card>
@@ -412,6 +621,13 @@ interface Section {
 }
 
 const SECTIONS: Section[] = [
+  {
+    id: "criteria",
+    title: "Criteria Issues",
+    keywords:
+      "criteria issues critérios qualificação gameplay nota parede bomba tempo overmapping downmapping formatação metadados bpm nomes dificuldade sub-nome iluminação lolighter duração 1 hora 20 segundos",
+    node: <CriteriaSection />,
+  },
   {
     id: "stars",
     title: "1 · Stars das dificuldades",
@@ -457,6 +673,15 @@ function scrollToSection(id: string) {
 
 export function SobreWiki() {
   const [query, setQuery] = useState("");
+
+  // Ao chegar com um hash (ex.: /sobre#criteria vindo do link de sugestão),
+  // rola até a seção depois do mount (componente client).
+  useEffect(() => {
+    const hash = window.location.hash.replace("#", "");
+    if (hash) {
+      document.getElementById(hash)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, []);
 
   const filtered = useMemo(() => {
     const q = normalize(query.trim());
