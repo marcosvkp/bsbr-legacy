@@ -3,6 +3,7 @@ import { IBM_Plex_Sans, Tektur } from "next/font/google";
 import Link from "next/link";
 import "./globals.css";
 import { SiteNav } from "@/components/site-nav";
+import { UserMenu } from "@/components/user-menu";
 
 const tektur = Tektur({
   variable: "--font-tektur",
@@ -40,7 +41,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                 BSBR
               </span>
             </Link>
-            <SiteNav />
+            <div className="flex items-center gap-3">
+              <SiteNav />
+              <UserMenu />
+            </div>
           </div>
         </header>
         <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8">
