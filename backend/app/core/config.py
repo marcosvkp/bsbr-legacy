@@ -48,6 +48,14 @@ class Settings(BaseSettings):
     # Segredo para assinar o cookie de sessão do admin (default = admin_token)
     session_secret: str | None = None
 
+    # Login de usuários do site (OAuth Steam / OpenID 2.0). O steamID64 é o
+    # ss_id do ScoreSaber no nosso banco — identidade unificada.
+    steam_api_key: str | None = None
+    # URL pública do frontend (redirect pós-login; ex.: https://bsbr.pro)
+    frontend_base_url: str = "http://localhost:3000"
+    # Callback exato do OpenID Steam (ex.: https://bsbr.pro/api/v1/auth/steam/callback)
+    steam_return_to: str | None = None
+
     # Front-end
     cors_origins: list[str] = ["http://localhost:3000"]
 
