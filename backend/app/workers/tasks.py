@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from celery import shared_task
 from sqlalchemy import select
+from sqlalchemy.orm import joinedload
 
 
 @shared_task(name="ping")
@@ -15,14 +16,22 @@ def ping() -> str:
     return "pong"
 
 
-def _rating_lines(history_rows: list) -> list[str]:
-    lines = []
-    for h in history_rows[:10]:
-        arrow = "⬆️" if (h.total_stars_after or 0) > (h.total_stars_before or 0) else "⬇️"
-        lines.append(f"{arrow} `{h.total_stars_before:.2f}★ → {h.total_stars_after:.2f}★`")
-    if len(history_rows) > 10:
-        lines.append(f"_… e mais {len(history_rows) - 10} mapas_")
-    return lines
+def _reweight_rows(history_rows: list) -> list[dict]:
+    """Linhas do relatório de reweight (nome/difficulty/mapper/antes/depois)."""
+    rows = []
+    for h in history_rows:
+        diff = h.difficulty
+        map_ = diff.map if diff is not None else None
+        rows.append(
+            {
+                "map_name": map_.name if map_ is not None else "?",
+                "difficulty": diff.name if diff is not None else "?",
+                "mapper": map_.mapper if map_ is not None else "?",
+                "before": h.total_stars_before,
+                "after": h.total_stars_after,
+            }
+        )
+    return rows
 
 
 async def run_weekly_batch() -> dict:
@@ -35,8 +44,8 @@ async def run_weekly_batch() -> dict:
     cache._redis = await task_redis_client()
 
     SessionLocal, close_db = await task_session_factory()
-    from app.integrations.discord import send_batch_report
-    from app.models import Batch, BatchKind, RatingHistory
+    from app.integrations.discord import send_reweight_report
+    from app.models import Batch, BatchKind, Difficulty, RatingHistory
     from app.services.playlist import generate_bsbr_playlist
     from app.services.ranking import recompute_all_rankings, write_weekly_snapshot
     from app.services.reweight.service import collect_suggestions
@@ -57,7 +66,11 @@ async def run_weekly_batch() -> dict:
             changed = (
                 (
                     await session.scalars(
-                        select(RatingHistory).where(RatingHistory.batch_id == batch.id)
+                        select(RatingHistory)
+                        .options(
+                            joinedload(RatingHistory.difficulty).joinedload(Difficulty.map)
+                        )
+                        .where(RatingHistory.batch_id == batch.id)
                     )
                 )
                 .all()
@@ -76,6 +89,16 @@ async def run_weekly_batch() -> dict:
                 "ratings_changed": len(changed),
             }
             await session.commit()
+
+            # Notifica os webhooks (somente REWEIGHT de mapas; o sync/batch
+            # não vai para esse endpoint). Múltiplos URLs via webhook_configs.
+            if changed:
+                rows = _reweight_rows(changed)
+                from datetime import datetime as _dt, timezone as _tz
+
+                today = _dt.now(_tz.utc)
+                title = f"Reweight de mapas — {today:%d/%m/%Y}"
+                await send_reweight_report(session, rows, title=title)
         except Exception:
             # Sem try/finally, um erro no meio deixaria o batch 'em execução'
             # para sempre (finished_at nunca gravado). Marca como encerrado
@@ -90,16 +113,6 @@ async def run_weekly_batch() -> dict:
         stats = dict(batch.stats)
 
     await close_db()
-    await send_batch_report(
-        {
-            "title": "BSBR — Batch semanal concluído",
-            "description": "Pipeline de sync, reweight e ranking executada.",
-            "fields": {
-                **{k: v for k, v in stats.items()},
-                "Mudanças de rating": "\n".join(_rating_lines(changed)) or "—",
-            },
-        }
-    )
     return stats
 
 
