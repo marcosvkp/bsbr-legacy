@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import require_user
 from app.core.db import get_db
-from app.models import MapSuggestion, MapSuggestionStatus
+from app.models import MapSuggestion, MapSuggestionStatus, Player
 from app.services.suggestions import (
     count_pending,
     duplicate_pending,
@@ -45,6 +45,61 @@ def _item(s: MapSuggestion) -> dict:
         "note": s.note,
         "status": s.status.value,
         "created_at": s.created_at.isoformat() if s.created_at else None,
+    }
+
+
+def _public_item(s: MapSuggestion, player: Player | None) -> dict:
+    """Item público (aba comunidade): sem ss_id/reviewed_by, com o jogador."""
+    return {
+        "id": s.id,
+        "hash": s.hash,
+        "beatsaver_id": s.beatsaver_id,
+        "name": s.name,
+        "mapper": s.mapper,
+        "bpm": s.bpm,
+        "cover_url": s.cover_url,
+        "note": s.note,
+        "status": s.status.value,
+        "created_at": s.created_at.isoformat() if s.created_at else None,
+        "player_name": player.name if player else None,
+        "player_avatar": player.avatar_url if player else None,
+        "player_country": player.country if player else None,
+    }
+
+
+@router.get("/suggestions")
+async def list_suggestions(
+    db: AsyncSession = Depends(get_db),
+    q: str | None = Query(None, max_length=80, description="Busca por nome do mapa"),
+    status: str | None = Query(None, description="pending | approved | rejected"),
+    limit: int = Query(24, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+) -> dict:
+    """Sugestões da comunidade (público) — paginadas, com quem sugeriu."""
+    filters = []
+    if status:
+        try:
+            filters.append(MapSuggestion.status == MapSuggestionStatus(status))
+        except ValueError:
+            raise HTTPException(status_code=422, detail="status inválido")
+    if q:
+        filters.append(MapSuggestion.name.ilike(f"%{q.strip()}%"))
+    total = (await db.scalar(select(func.count()).select_from(MapSuggestion).where(*filters))) or 0
+    rows = (
+        await db.execute(
+            select(MapSuggestion, Player)
+            .join(Player, Player.ss_id == MapSuggestion.ss_id, isouter=True)
+            .where(*filters)
+            .order_by(MapSuggestion.created_at.desc(), MapSuggestion.id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+    ).all()
+    return {
+        "items": [_public_item(s, p) for s, p in rows],
+        "total": total,
+        "page": offset // limit,
+        "page_size": limit,
     }
 
 

@@ -315,3 +315,39 @@ async def test_admin_reject(client, monkeypatch):
     async with SessionLocal() as s:
         sug = await s.get(MapSuggestion, sid)
         assert sug.status == MapSuggestionStatus.REJECTED
+
+
+async def test_public_list_suggestions(client, monkeypatch):
+    """Aba comunidade: GET /suggestions público lista com quem sugeriu + busca."""
+    import app.api.v1.endpoints.suggestions as ep
+
+    client.cookies.set("bsbr_user_session", cookie_value(STEAM_ID))
+    monkeypatch.setattr(ep, "fetch_metadata_light", _fake_metadata)
+    client.post("/api/v1/suggestions", json={"source": "a1", "note": "mapa da comunidade"})
+
+    from app.core.db import SessionLocal
+
+    async with SessionLocal() as s:
+        s.add(Player(ss_id=STEAM_ID, name="Marco", country="BR", avatar_url="http://a/1.jpg"))
+        await s.commit()
+
+    # sem login → 200 (público)
+    r = client.get("/api/v1/suggestions")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] == 1
+    item = body["items"][0]
+    assert item["status"] == "pending"
+    assert item["player_name"] == "Marco"
+    assert item["player_avatar"] == "http://a/1.jpg"
+    assert "ss_id" not in item  # não expõe ss_id publicamente
+
+    # busca por nome
+    r = client.get("/api/v1/suggestions", params={"q": "Mapa"})
+    assert r.json()["total"] == 1
+    r = client.get("/api/v1/suggestions", params={"q": "inexistente"})
+    assert r.json()["total"] == 0
+
+    # filtro por status inválido → 422
+    r = client.get("/api/v1/suggestions", params={"status": "xpto"})
+    assert r.status_code == 422
