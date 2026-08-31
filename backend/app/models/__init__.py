@@ -22,6 +22,7 @@ from app.models.enums import BatchKind, MapSuggestionStatus, MapStatus, Suggesti
 from app.models.map import Map  # noqa: E402
 from app.models.map_suggestion import MapSuggestion  # noqa: E402
 from app.models.player import Player  # noqa: E402
+from app.models.webhook_config import WebhookConfig  # noqa: E402
 from app.models.rank_snapshot import RankSnapshot  # noqa: E402
 from app.models.rating_history import RatingHistory  # noqa: E402
 from app.models.reweight_suggestion import ReweightSuggestion  # noqa: E402
@@ -44,4 +45,5 @@ __all__ = [
     "Score",
     "StaffUser",
     "SuggestionStatus",
+    "WebhookConfig",
 ]

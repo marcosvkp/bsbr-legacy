@@ -40,6 +40,7 @@ EXPECTED_TABLES = {
     "batches",
     "staff_users",
     "map_suggestions",
+    "webhook_configs",
 }
 
 
