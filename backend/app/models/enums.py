@@ -26,6 +26,18 @@ class SuggestionStatus(str, enum.Enum):
     REJECTED = "rejected"
 
 
+class MapSuggestionStatus(str, enum.Enum):
+    """Estado de uma sugestão de mapa feita por um jogador do site.
+
+    ``pending`` conta para o limite de 3 ativas por jogador; ``approved``
+    vira um Map candidate (sem ML) e ``rejected`` libera o slot.
+    """
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
 class BatchKind(str, enum.Enum):
     """Origem de um batch de recálculo."""
 

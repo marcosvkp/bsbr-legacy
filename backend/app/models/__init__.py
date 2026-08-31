@@ -18,8 +18,9 @@ Base.metadata.naming_convention = {
 
 from app.models.batch import Batch  # noqa: E402
 from app.models.difficulty import Difficulty  # noqa: E402
-from app.models.enums import BatchKind, MapStatus, SuggestionStatus  # noqa: E402,F401
+from app.models.enums import BatchKind, MapSuggestionStatus, MapStatus, SuggestionStatus  # noqa: E402,F401
 from app.models.map import Map  # noqa: E402
+from app.models.map_suggestion import MapSuggestion  # noqa: E402
 from app.models.player import Player  # noqa: E402
 from app.models.rank_snapshot import RankSnapshot  # noqa: E402
 from app.models.rating_history import RatingHistory  # noqa: E402
@@ -33,6 +34,8 @@ __all__ = [
     "BatchKind",
     "Difficulty",
     "Map",
+    "MapSuggestion",
+    "MapSuggestionStatus",
     "MapStatus",
     "Player",
     "RankSnapshot",

@@ -39,6 +39,7 @@ EXPECTED_TABLES = {
     "rank_snapshots",
     "batches",
     "staff_users",
+    "map_suggestions",
 }
 
 
