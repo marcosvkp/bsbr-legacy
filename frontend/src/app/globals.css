@@ -137,3 +137,9 @@ body::before {
 ::-webkit-scrollbar-thumb:hover {
   background: #52525b;
 }
+
+/* Abas do admin usam `hidden` em wrappers com display:flex — garante que o
+ * atributo esconda de verdade (senão a classe display vence). */
+[hidden] {
+  display: none !important;
+}

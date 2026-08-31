@@ -1,7 +1,10 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { ApiError, getJson, postJson } from "@/lib/api";
+import { AdminTabs, type AdminTab } from "./admin-tabs";
+import { SuggestionsSection } from "./suggestions-section";
 import type {
   AdminBatchItem,
   AdminBatchesResponse,
@@ -38,7 +41,7 @@ function pct(value: number | null): string {
   return `${formatNumber(scaled)}%`;
 }
 
-export default function AdminPage() {
+function AdminDashboard() {
   const [tokenInput, setTokenInput] = useState("");
   const [token, setToken] = useState<string | null>(null);
 
@@ -90,6 +93,8 @@ export default function AdminPage() {
   const rankedDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [rejectLoading, setRejectLoading] = useState<number | null>(null);
   const [rejectError, setRejectError] = useState<string | null>(null);
+
+  const tab = (useSearchParams().get("tab") ?? "qualification") as AdminTab;
 
 
   const loadSuggestions = useCallback(async (activeToken: string) => {
@@ -525,9 +530,11 @@ export default function AdminPage() {
       <div>
         <h1 className="text-2xl font-black tracking-tight">Administração</h1>
         <p className="mt-1 text-sm text-muted">
-          Fila de reweight e execução manual do batch semanal.
+          Qualificação, sugestões da comunidade, reweight e batch semanal.
         </p>
       </div>
+
+      <AdminTabs active={tab} />
 
       {/* Token */}
       <Card>
@@ -559,6 +566,7 @@ export default function AdminPage() {
         </CardContent>
       </Card>
 
+      <div hidden={tab !== "reweight"} className="flex flex-col gap-6">
       {/* Fila de reweight */}
       <Card>
         <CardHeader className="flex-row items-center justify-between">
@@ -775,7 +783,9 @@ export default function AdminPage() {
           ) : null}
         </CardContent>
       </Card>
+      </div>
 
+      <div hidden={tab !== "qualification"} className="flex flex-col gap-6">
       {/* Qualificação de mapas (nova batch) */}
       <Card>
         <CardHeader>
@@ -1223,7 +1233,9 @@ export default function AdminPage() {
           )}
         </CardContent>
       </Card>
+      </div>
 
+      <div hidden={tab !== "batch"} className="flex flex-col gap-6">
       {/* Batch */}
       <Card>
         <CardHeader>
@@ -1348,6 +1360,23 @@ export default function AdminPage() {
           )}
         </CardContent>
       </Card>
+      </div>
+
+      {tab === "suggestions" ? <SuggestionsSection token={token} /> : null}
     </div>
   );
 }
+
+function AdminPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="p-8 text-center text-sm text-muted">Carregando admin…</div>
+      }
+    >
+      <AdminDashboard />
+    </Suspense>
+  );
+}
+
+export default AdminPage;
