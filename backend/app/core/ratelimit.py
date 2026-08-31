@@ -25,9 +25,13 @@ class SlidingWindowLimiter:
     async def acquire(self) -> float:
         """Bloqueia até uma vaga abrir na janela. Retorna segundos esperados."""
         while True:
-            waited = await self._try_acquire_once()
+            waited = await self.try_acquire()
             if waited == 0.0:
                 return 0.0
+
+    async def try_acquire(self) -> float:
+        """Tentativa única não-bloqueante: 0.0 = adquiriu; >0 = segundos até a próxima vaga."""
+        return await self._try_acquire_once()
 
     async def _try_acquire_once(self) -> float:
         now = time.time()
