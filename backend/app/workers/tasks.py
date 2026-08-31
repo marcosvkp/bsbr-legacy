@@ -16,24 +16,6 @@ def ping() -> str:
     return "pong"
 
 
-def _reweight_rows(history_rows: list) -> list[dict]:
-    """Linhas do relatório de reweight (nome/difficulty/mapper/antes/depois)."""
-    rows = []
-    for h in history_rows:
-        diff = h.difficulty
-        map_ = diff.map if diff is not None else None
-        rows.append(
-            {
-                "map_name": map_.name if map_ is not None else "?",
-                "difficulty": diff.name if diff is not None else "?",
-                "mapper": map_.mapper if map_ is not None else "?",
-                "before": h.total_stars_before,
-                "after": h.total_stars_after,
-            }
-        )
-    return rows
-
-
 async def run_weekly_batch() -> dict:
     from app.core.cache import cache, task_redis_client
     from app.core.db import task_session_factory  # engine isolado por loop (tasks celery)
@@ -44,7 +26,7 @@ async def run_weekly_batch() -> dict:
     cache._redis = await task_redis_client()
 
     SessionLocal, close_db = await task_session_factory()
-    from app.integrations.discord import send_reweight_report
+    from app.integrations.discord import history_rows, send_reweight_report
     from app.models import Batch, BatchKind, Difficulty, RatingHistory
     from app.services.playlist import generate_bsbr_playlist
     from app.services.ranking import recompute_all_rankings, write_weekly_snapshot
@@ -62,6 +44,24 @@ async def run_weekly_batch() -> dict:
             reweight_stats = await collect_suggestions(session, batch_id=batch.id)
             ranking = await recompute_all_rankings(session)
             snapshot_count = await write_weekly_snapshot(session)
+
+            # Reweights manuais (apply no admin) nascem com batch_id NULL.
+            # O relatório sai aqui, no batch: varre as aplicações manuais
+            # ainda não reportadas para este batch e reporta tudo junto
+            # (manuais + auto do batch) numa mensagem só.
+            manual = (
+                (
+                    await session.scalars(
+                        select(RatingHistory).where(
+                            RatingHistory.batch_id.is_(None),
+                            RatingHistory.total_stars_before.is_not(None),
+                        )
+                    )
+                )
+                .all()
+            )
+            for h in manual:
+                h.batch_id = batch.id
 
             changed = (
                 (
@@ -93,7 +93,7 @@ async def run_weekly_batch() -> dict:
             # Notifica os webhooks (somente REWEIGHT de mapas; o sync/batch
             # não vai para esse endpoint). Múltiplos URLs via webhook_configs.
             if changed:
-                rows = _reweight_rows(changed)
+                rows = history_rows(changed)
                 from datetime import datetime as _dt, timezone as _tz
 
                 today = _dt.now(_tz.utc)

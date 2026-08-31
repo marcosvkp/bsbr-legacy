@@ -224,3 +224,51 @@ async def test_send_reweight_report_no_webhooks(client, monkeypatch):
         sent = await send_reweight_report(s, [{"map_name": "X", "before": 1, "after": 2}])
     assert sent == 0
     assert fake.posts == []
+
+
+# ─── apply manual NÃO dispara webhook (report sai no batch) ────────────────
+
+
+async def test_admin_apply_does_not_send_webhook(client, monkeypatch):
+    """O apply manual só persiste; a notificação sai quando o batch roda."""
+    from app.core.db import SessionLocal
+    from app.models import Difficulty, Map, MapStatus, ReweightSuggestion, SuggestionStatus
+
+    async with SessionLocal() as s:
+        m = Map(hash="c" * 40, name="Mapa Teste", mapper="MapperX", status=MapStatus.RANKED)
+        s.add(m)
+        await s.flush()
+        d = Difficulty(
+            map_id=m.id,
+            characteristic="Standard",
+            name="ExpertPlus",
+            total_stars=8.0,
+            is_ranked=True,
+        )
+        s.add(d)
+        await s.flush()
+        sug = ReweightSuggestion(
+            difficulty_id=d.id,
+            observed_acc=0.95,
+            expected_acc=0.88,
+            sample_size=11,
+            delta_stars=-1.5,
+            confidence="low",
+            suggested_stars=6.5,
+            status=SuggestionStatus.PENDING,
+        )
+        s.add(sug)
+        s.add(WebhookConfig(url="https://a.example/h", enabled=True))
+        await s.commit()
+        sug_id = sug.id
+
+    import app.integrations.discord as discordmod
+
+    fake = FakeClient()
+    monkeypatch.setattr(discordmod.httpx, "AsyncClient", lambda **kw: fake)
+
+    r = client.post(f"/api/v1/admin/reweight/{sug_id}/apply", headers=ADMIN)
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "applied"
+
+    assert fake.posts == [], "apply manual não deve postar no webhook"

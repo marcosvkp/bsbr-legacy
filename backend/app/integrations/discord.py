@@ -40,6 +40,26 @@ async def get_webhook_urls(db: AsyncSession) -> list[str]:
     return []
 
 
+def history_rows(histories: list) -> list[dict]:
+    """Linhas do relatório de reweight a partir de RatingHistory
+    (nome/difficulty/mapper/antes/depois). Usado pelo batch semanal (auto)
+    e pelo apply manual do admin — mesma formatação, um único lugar."""
+    rows = []
+    for h in histories:
+        diff = h.difficulty
+        map_ = diff.map if diff is not None else None
+        rows.append(
+            {
+                "map_name": map_.name if map_ is not None else "?",
+                "difficulty": diff.name if diff is not None else "?",
+                "mapper": map_.mapper if map_ is not None else "?",
+                "before": h.total_stars_before,
+                "after": h.total_stars_after,
+            }
+        )
+    return rows
+
+
 def _format_row(r: dict[str, Any]) -> str:
     before = r.get("before")
     after = r.get("after")
