@@ -34,6 +34,9 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/1
       ENVIRONMENT: dev
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      # Assina os cookies de sessão (admin + usuários do site). Sem isso o
+      # backend usa fallbacks conhecidos — defina um valor forte em prod.
+      SESSION_SECRET: ${SESSION_SECRET:-}
       DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:3000"]}
       STEAM_API_KEY: ${STEAM_API_KEY:-}
