@@ -9,7 +9,10 @@ namespace BSBRLeaderboard.Features.Leaderboards.Domain {
         private const string WipLevelSuffix = " WIP";
         private const string WipLevelSegment = "_WIP";
 
+#if !V129
+        // BeatmapKey (struct) não existe na 1.29.1 — só as APIs de string são usadas lá.
         internal static bool IsSupported(BeatmapKey beatmapKey) => TryGetSongHash(beatmapKey, out _);
+#endif
 
         internal static bool IsSupportedLevelId(string levelId) => TryGetSongHash(levelId, out _);
 
@@ -20,8 +23,10 @@ namespace BSBRLeaderboard.Features.Leaderboards.Domain {
             levelId.EndsWith(WipLevelSuffix, StringComparison.Ordinal)
             || levelId.IndexOf(WipLevelSegment, StringComparison.Ordinal) >= 0;
 
+#if !V129
         internal static bool TryGetSongHash(BeatmapKey beatmapKey, out string songHash) =>
             TryGetSongHash(beatmapKey.levelId, out songHash);
+#endif
 
         internal static bool TryGetSongHash(string levelId, out string songHash) {
             songHash = string.Empty;

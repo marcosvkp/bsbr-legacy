@@ -17,7 +17,13 @@ namespace BSBRLeaderboard.Features.Leaderboards.Addons {
             }
             _inited = true;
 
+#if V129
+            // BSML 1.6.10: PersistentSingleton<BSMLParser> → instance (minúsculo).
+            // BSML 1.12+: property estática Instance.
+            BSMLParser parser = BSMLParser.instance;
+#else
             BSMLParser parser = BSMLParser.Instance;
+#endif
 
             parser.RegisterTag(new BSBRListTag());
             parser.RegisterTypeHandler(new BSBRCellListTableDataHandler());

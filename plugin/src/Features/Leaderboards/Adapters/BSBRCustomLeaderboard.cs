@@ -49,6 +49,23 @@ namespace BSBRLeaderboard.Features.Leaderboards.Adapters {
             _manager.Unregister(this);
         }
 
+#if V129
+        // LeaderboardCore 1.5.0 (1.29.1/Mono): assinaturas por IPreviewBeatmapLevel /
+        // IDifficultyBeatmap. O hash vem do level.levelID (custom_level_<hash>);
+        // difficulty/characteristic vêm do IDifficultyBeatmap.
+        public override bool ShowForLevel(IPreviewBeatmapLevel selectedLevel) =>
+            selectedLevel != null && BSBRBeatmapKey.IsSupportedLevelId(selectedLevel.levelID);
+
+        public void OnLeaderboardSet(IDifficultyBeatmap beatmap) {
+            if (beatmap?.level == null || !BSBRBeatmapKey.TryGetSongHash(beatmap.level.levelID, out var hash)) {
+                return;
+            }
+            var difficulty = beatmap.difficulty.ToString();
+            var characteristic = beatmap.parentDifficultyBeatmapSet?.beatmapCharacteristic?.serializedName ?? "Standard";
+            _viewController.OnLeaderboardSet(hash, difficulty, characteristic);
+        }
+#else
+        // LeaderboardCore 1.7.0 (fork NSGolova, 1.34+): assinaturas por BeatmapKey.
         public override bool ShowForLevel(BeatmapKey? beatmapKey) =>
             beatmapKey != null && BSBRBeatmapKey.IsSupportedLevelId(beatmapKey.Value.levelId);
 
@@ -60,5 +77,6 @@ namespace BSBRLeaderboard.Features.Leaderboards.Adapters {
             var characteristic = beatmapKey.beatmapCharacteristic.serializedName;
             _viewController.OnLeaderboardSet(hash, difficulty, characteristic);
         }
+#endif
     }
 }

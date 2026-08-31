@@ -54,7 +54,11 @@ namespace BSBRLeaderboard.Features.Leaderboards.Addons {
             cell.name = "BSBRTableCell";
 
             int tempId = Data[idx].TemplateId;
+#if V129
+            cell.ParserParams = BSMLParser.instance.Parse(cellTemplates[tempId], cell.gameObject, Data[idx]);
+#else
             cell.ParserParams = BSMLParser.Instance.Parse(cellTemplates[tempId], cell.gameObject, Data[idx]);
+#endif
             cell.SetupPostParse();
 
             foreach (Graphic g in cell.GetComponentsInChildren<Graphic>(true)) {

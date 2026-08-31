@@ -105,7 +105,12 @@ namespace BSBRLeaderboard.Features.Leaderboards.Services {
 
         private static string TryGetSteamId(IPlatformUserModel platformUserModel) {
             try {
+#if V129
+                // 1.29.1 (Mono): IPlatformUserModel.GetUserInfo() sem CancellationToken.
+                var userInfo = platformUserModel?.GetUserInfo().GetAwaiter().GetResult();
+#else
                 var userInfo = platformUserModel?.GetUserInfo(CancellationToken.None).GetAwaiter().GetResult();
+#endif
                 return userInfo?.platformUserId ?? string.Empty;
             } catch (Exception ex) {
                 Plugin.Log?.Warn($"Falha ao obter playerId da plataforma: {ex.Message}");

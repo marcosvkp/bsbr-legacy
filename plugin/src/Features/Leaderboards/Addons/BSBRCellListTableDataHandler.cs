@@ -24,9 +24,17 @@ namespace BSBRLeaderboard.Features.Leaderboards.Addons {
         };
 
         public override void HandleType(BSMLParser.ComponentTypeWithData componentType, BSMLParserParams parserParams) {
+#if V129
+            // BSML 1.6.10 expõe fields públicos (component/data/values); 1.12+ expõe
+            // properties capitalizadas (Component/Data/Values).
+            Component component = componentType.component;
+            Dictionary<string, string> data = componentType.data;
+            Dictionary<string, BSMLValue> values = parserParams.values;
+#else
             Component component = componentType.Component;
             Dictionary<string, string> data = componentType.Data;
             Dictionary<string, BSMLValue> values = parserParams.Values;
+#endif
 
             var componentData = (component as BSBRCellListTableData)!;
 
