@@ -431,3 +431,64 @@ export const WEIGHT_COEFFICIENT = 0.965;
 export function weightedAt(pp: number, position: number): number {
   return pp * WEIGHT_COEFFICIENT ** position;
 }
+
+// ---------------------------------------------------------------------------
+// Login / sessão de usuário (OAuth Steam)
+// ---------------------------------------------------------------------------
+
+export interface MeResponse {
+  ss_id: string;
+  name: string;
+  avatar_url: string | null;
+  country: string | null;
+  rank: number | null;
+}
+
+// ---------------------------------------------------------------------------
+// Sugestões de mapas (jogadores logados)
+// ---------------------------------------------------------------------------
+
+export type MapSuggestionStatus = "pending" | "approved" | "rejected";
+
+export interface MapSuggestion {
+  id: number;
+  hash: string;
+  beatsaver_id: string | null;
+  name: string;
+  mapper: string | null;
+  bpm: number | null;
+  cover_url: string | null;
+  note: string | null;
+  status: MapSuggestionStatus;
+  created_at: string | null;
+}
+
+export interface SuggestionsMeResponse {
+  active_count: number;
+  max_active: number;
+  total: number;
+  page: number;
+  page_size: number;
+  items: MapSuggestion[];
+}
+
+export interface AdminSuggestion extends MapSuggestion {
+  ss_id: string;
+  reviewed_at: string | null;
+  player_name: string | null;
+  player_avatar: string | null;
+  player_country: string | null;
+}
+
+export interface AdminSuggestionsResponse {
+  items: AdminSuggestion[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface MapSuggestionActionResponse {
+  id: number;
+  status: string;
+  map_id?: number;
+}

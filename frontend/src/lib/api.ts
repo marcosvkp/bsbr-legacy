@@ -47,6 +47,9 @@ async function requestJson<T>(
     response = await fetch(`${API_BASE}${path}`, {
       method,
       signal: controller.signal,
+      // Envia/recebe cookies de sessão do usuário (bsbr_user_session) no
+      // fetch cross-origin (dev: localhost:3000 → localhost:8000).
+      credentials: "include",
       headers: {
         Accept: "application/json",
         ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
