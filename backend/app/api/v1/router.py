@@ -1,8 +1,9 @@
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import admin, calc, health, live, maps, og, oauth, playlist, players, rankings, stars_bands
+from app.api.v1.endpoints import admin, auth, calc, health, live, maps, og, oauth, playlist, players, rankings, stars_bands
 
 api_router = APIRouter()
+api_router.include_router(auth.router, tags=["auth"])
 api_router.include_router(health.router, tags=["health"])
 api_router.include_router(rankings.router, tags=["rankings"])
 api_router.include_router(players.router, tags=["players"])
