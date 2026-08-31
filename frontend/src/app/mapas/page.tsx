@@ -9,6 +9,7 @@ import { BackendOffline, EmptyState } from "@/components/empty-state";
 import { Pagination } from "@/components/pagination";
 import { SubStats } from "@/components/sub-stats";
 import { PlaylistDownload } from "@/components/playlist-download";
+import { SuggestMap } from "@/components/suggest-map";
 import { MapsFilter } from "./maps-filter";
 import { SortSelect } from "./sort-select";
 
@@ -324,6 +325,7 @@ export default async function MapsPage(props: PageProps<"/mapas">) {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
+          {!isQualification ? <SuggestMap /> : null}
           {!isQualification && data ? <PlaylistDownload total={data.total} /> : null}
         </div>
       </div>
