@@ -6,6 +6,7 @@ workers e beat juntos. Sem Redis, cai para memória do processo (dev).
 
 import time
 from collections import deque
+from typing import Any
 
 from app.core.cache import cache
 
@@ -16,7 +17,13 @@ class SlidingWindowLimiter:
         self.max_calls = max_calls
         self.period = period_seconds
         self._local: deque[float] = deque()
-        self._redis = cache._redis  # noqa: SLF001 — mesma infra de cache
+
+    @property
+    def _redis(self) -> Any:
+        # Lido dinamicamente: as tasks celery recriam cache._redis por loop
+        # (task_redis_client); capturar no __init__ prenderia um cliente de
+        # um loop já fechado → "Event loop is closed".
+        return cache._redis  # noqa: SLF001 — mesma infra de cache
 
     @property
     def is_shared(self) -> bool:

@@ -74,4 +74,21 @@ class Cache:
             _MEMORY_STORE.pop(k, None)
 
 
+async def task_redis_client():
+    """Cliente Redis novo, ligado ao loop da task celery (engine por loop).
+
+    O ``cache._redis`` global é criado no processo pai (pré-fork); as conexões
+    ficam presas ao loop que as criou, e as tasks celery rodam ``asyncio.run``
+    com um loop novo por execução. Recriar o cliente no loop atual evita o
+    ``Event loop is closed`` / ``attached to a different loop`` — o mesmo
+    problema que o ``task_session_factory`` resolve para o engine do banco.
+    """
+    url = get_settings().redis_url
+    if not url:
+        return None
+    import redis.asyncio as aioredis
+
+    return aioredis.from_url(url, decode_responses=True)
+
+
 cache = Cache()
