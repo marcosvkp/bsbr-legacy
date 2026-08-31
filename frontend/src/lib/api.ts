@@ -31,7 +31,7 @@ export class ApiError extends Error {
 
 async function requestJson<T>(
   path: string,
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "PATCH" | "DELETE",
   body: unknown,
   init?: JsonInit,
 ): Promise<T> {
@@ -78,6 +78,11 @@ async function requestJson<T>(
     );
   }
 
+  // 204/HEAD sem corpo → retorna undefined em vez de tentar parsear.
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
   try {
     return (await response.json()) as T;
   } catch (cause) {
@@ -104,5 +109,19 @@ export async function postJson<T>(
   init?: JsonInit,
 ): Promise<T> {
   return requestJson<T>(path, "POST", body ?? {}, init);
+}
+
+/** PATCH JSON (ex.: toggle de webhook). */
+export async function patchJson<T>(
+  path: string,
+  body: unknown,
+  init?: JsonInit,
+): Promise<T> {
+  return requestJson<T>(path, "PATCH", body ?? {}, init);
+}
+
+/** DELETE (204 não tem corpo — retorna undefined tipado). */
+export async function deleteJson(path: string, init?: JsonInit): Promise<void> {
+  await requestJson<unknown>(path, "DELETE", undefined, init);
 }
 

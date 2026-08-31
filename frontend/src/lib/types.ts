@@ -506,3 +506,17 @@ export interface CommunitySuggestionsResponse {
   page: number;
   page_size: number;
 }
+
+// ── Webhooks do Discord (notificações de reweight) ──────────────────────
+
+export interface WebhookConfig {
+  id: number;
+  url: string;
+  label: string | null;
+  enabled: boolean;
+  created_at: string | null;
+}
+
+export interface WebhooksResponse {
+  items: WebhookConfig[];
+}

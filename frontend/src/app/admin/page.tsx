@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { ApiError, getJson, postJson } from "@/lib/api";
 import { AdminTabs, type AdminTab } from "./admin-tabs";
 import { SuggestionsSection } from "./suggestions-section";
+import { WebhooksSection } from "./webhooks-section";
 import type {
   AdminBatchItem,
   AdminBatchesResponse,
@@ -1389,6 +1390,7 @@ function AdminDashboard() {
       </div>
 
       {tab === "suggestions" ? <SuggestionsSection token={token} /> : null}
+      {tab === "webhooks" ? <WebhooksSection token={token} /> : null}
     </div>
   );
 }

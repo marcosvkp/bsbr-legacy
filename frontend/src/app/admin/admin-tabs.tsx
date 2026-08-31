@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 
-export type AdminTab = "qualification" | "suggestions" | "reweight" | "batch";
+export type AdminTab = "qualification" | "suggestions" | "reweight" | "batch" | "webhooks";
 
 const TABS: Array<{ id: AdminTab; label: string }> = [
   { id: "qualification", label: "Qualificação" },
   { id: "suggestions", label: "Sugestões de mapas" },
   { id: "reweight", label: "Reweight" },
   { id: "batch", label: "Batch" },
+  { id: "webhooks", label: "Webhooks" },
 ];
 
 /** Barra de abas do admin — navegação por URL (?tab=...). */
