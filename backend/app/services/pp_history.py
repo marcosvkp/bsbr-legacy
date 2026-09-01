@@ -125,18 +125,6 @@ async def build_pp_history(
         if interpolated:
             points = _merge_interpolated(points, interpolated)
 
-    # Ponto final "Agora" (real, sempre presente quando há scores).
-    points.append(
-        {
-            "ts": now.isoformat(),
-            "estimated": False,
-            "pp_total": float(player.pp_total or 0.0),
-            "pp_acc": float(player.pp_acc or 0.0),
-            "pp_tech": float(player.pp_tech or 0.0),
-            "pp_speed": float(player.pp_speed or 0.0),
-        }
-    )
-
     return {
         "ss_id": player.ss_id,
         "days": days,

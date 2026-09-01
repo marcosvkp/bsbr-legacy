@@ -149,7 +149,6 @@ export function PpHistoryChart({ ssId, initial }: PpHistoryChartProps) {
   }, [points, nowMs]);
 
   const hovered = hover !== null ? rendered.mapped[hover] : null;
-  const last = rendered.mapped[rendered.mapped.length - 1];
 
   // Posiciona o tooltip sem estourar as bordas do gráfico.
   const tooltipPos = hovered
@@ -354,17 +353,7 @@ export function PpHistoryChart({ ssId, initial }: PpHistoryChartProps) {
             );
           })}
 
-          {/* Handle "Agora" — pulso ao vivo */}
-          {last && Number.isFinite(last.y) ? (
-            <g pointerEvents="none">
-              <circle cx={last.x} cy={last.y} r="11" fill="none" stroke="var(--accent)" strokeOpacity="0.3" strokeWidth="1.5" />
-              <circle cx={last.x} cy={last.y} r="6" fill="var(--accent)" filter="url(#pp-glow)" />
-              <path
-                d={`M${last.x + 1},${last.y - 2.75} L${last.x + 4},${last.y} L${last.x + 1},${last.y + 2.75} Z`}
-                fill="white"
-              />
-            </g>
-          ) : null}
+          {/* Handle "Agora" omitido — o valor atual do PP já está visível no perfil. */}
 
           {rendered.empty ? (
             <g>

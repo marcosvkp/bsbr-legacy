@@ -83,15 +83,14 @@ async def test_cumulative_weighted_totals(session):
     history = await build_pp_history(session, p, days=DEFAULT_DAYS)
 
     real = [pt for pt in history["points"] if not pt["estimated"]]
-    # 3 eventos + "Agora"; o ponto 0 do início da janela é estimado (sem scores antigos)
-    assert len(real) == 4
-    totals = [pt["pp_total"] for pt in real[:-1]]
+    # 3 eventos; o ponto 0 do início da janela é estimado (sem scores antigos).
+    # Sem ponto "Agora": o valor atual já está no perfil do jogador.
+    assert len(real) == 3
+    totals = [pt["pp_total"] for pt in real]
     assert totals[0] == pytest.approx(100.0)
     assert totals[1] == pytest.approx(100 + 50 * 0.965)  # 148.25
     assert totals[2] == pytest.approx(100 + 50 * 0.965 + 30 * 0.965**2)
-    # "Agora" sempre real
-    assert real[-1]["estimated"] is False
-    assert real[-1]["ts"] == history["now"]
+    assert all(pt["estimated"] is False for pt in real)
     # sub-componentes presentes
     assert all("pp_acc" in pt and "pp_tech" in pt and "pp_speed" in pt for pt in real)
 
@@ -106,8 +105,8 @@ async def test_same_day_collapses(session):
     )
     history = await build_pp_history(session, p, days=DEFAULT_DAYS)
     real = [pt for pt in history["points"] if not pt["estimated"]]
-    # 1 evento do dia + "Agora"
-    assert len(real) == 2
+    # 1 evento do dia (sem ponto "Agora" — o PP atual está no perfil)
+    assert len(real) == 1
     assert real[0]["pp_total"] == pytest.approx(100 + 80 * 0.965)
 
 
