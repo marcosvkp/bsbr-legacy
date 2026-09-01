@@ -73,12 +73,44 @@ PATTERN_FEATURES = [
     "pat_arc_count", "pat_chain_count", "pat_arc_density",
     # Complexidade agregada
     "pat_pattern_complexity",
-    # Assimetria entre maos
+# Assimetria entre maos
     "pat_left_stream_ratio", "pat_right_stream_ratio",
     "pat_left_crossover_ratio", "pat_right_crossover_ratio",
 ]
 
-ALL_FEATURES = BASE_FEATURES + PATTERN_FEATURES
+# Features swing-based (porte do beatleader-analyzer, ML v1.5)
+# Agrupam notas em swings, prevêem paridade via DP, calculam strain angular,
+# repositioning/rotation, classificam multi-note e walls, e produzem ratings
+# determinísticos (PassRating/TechRating/MultiRating/PeakSustainedEBPM).
+SWING_FEATURES = [
+    # Swing básico
+    "pat_swing_count", "pat_swing_frequency_avg", "pat_swing_frequency_peak",
+    "pat_hit_distance_avg", "pat_hit_distance_peak",
+    # Movimento (tech)
+    "pat_repositioning_distance_avg", "pat_repositioning_distance_peak",
+    "pat_rotation_amount_avg", "pat_rotation_amount_peak",
+    # Strain angular
+    "pat_angle_strain_avg", "pat_angle_strain_peak",
+    "pat_linear_swing_ratio",
+    # Paridade (DP — mais preciso que pat_parity_break_count heurístico)
+    "pat_parity_error_count_dp", "pat_parity_error_ratio_dp",
+    "pat_bomb_avoidance_count",
+    # Multi-note discriminado (pat_stack_count já existe em PATTERN_FEATURES;
+    # swing_features sobrescreve com a versão BL mais precisa)
+    "pat_tower_count",
+    "pat_slider_count", "pat_curved_slider_count",
+    "pat_window_count", "pat_slanted_window_count",
+    # Walls classificadas (vs pat_obstacle_density genérico)
+    "pat_dodge_wall_count", "pat_crouch_wall_count",
+    # NJS
+    "pat_njs_buff_avg", "pat_njs_max",
+    # Ratings determinísticos do BL (features compostos)
+    "pat_peak_sustained_ebpm", "pat_multi_rating_bl",
+    "pat_low_note_nerf", "pat_one_saber_ratio",
+    "pat_pass_rating_bl", "pat_tech_rating_bl",
+]
+
+ALL_FEATURES = BASE_FEATURES + PATTERN_FEATURES + SWING_FEATURES
 
 _model_cache: Dict[str, Any] = {}
 

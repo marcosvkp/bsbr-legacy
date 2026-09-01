@@ -156,10 +156,16 @@ def analyze_difficulty(
         version=version,
         raw_data=raw_data,
     )
+    # Features swing-based (porte do beatleader-analyzer, ML v1.5).
+    # Retorna dict vazio se <2 notas por mão — features pat_swing_* ficam 0.
+    from .swing_features import compute_swing_features
+
+    swing_metrics = compute_swing_features(beatmap, bpm=bpm, njs=njs)
     all_features: Dict[str, Any] = {
         **{k: v for k, v in features.items() if k != "_bpm"},
         "bpm": float(bpm),
         **pattern_metrics,
+        **swing_metrics,
     }
 
     style_tags = classify_map_style(pattern_metrics)
