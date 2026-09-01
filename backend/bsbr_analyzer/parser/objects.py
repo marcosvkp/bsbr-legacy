@@ -43,6 +43,116 @@ class Note(BeatmapObject):
 
 
 @dataclass
+class Chain(BeatmapObject):
+    """Linker (chain) V3 — squishy connector entre head e tail.
+
+    ``tb`` é o beat do tail (relativo ao head em alguns formatos, absoluto
+    em outros — o parser do BL usa ``TailInBeats``). ``sc`` = slice count,
+    ``s`` = squish.
+    """
+
+    x: int = 0
+    y: int = 0
+    c: NoteColor = NoteColor.RED
+    d: NoteCutDirection = NoteCutDirection.ANY
+    a: int = 0
+    tx: int = 0
+    ty: int = 0
+    tail_in_beats: float = 0.0
+    slice_count: int = 8
+    squish: float = 1.0
+
+    @classmethod
+    def from_v3_dict(cls, data: Dict[str, Any]) -> "Chain":
+        return cls(
+            b=float(data["b"]),
+            x=int(data.get("x", 0)),
+            y=int(data.get("y", 0)),
+            c=NoteColor(data.get("c", 0)),
+            d=NoteCutDirection(data.get("d", 8)),
+            a=int(data.get("a", 0)),
+            tx=int(data.get("tx", 0)),
+            ty=int(data.get("ty", 0)),
+            tail_in_beats=float(data.get("tb", 0.0)),
+            slice_count=int(data.get("sc", 8)),
+            squish=float(data.get("s", 1.0)),
+        )
+
+
+@dataclass
+class Arc(BeatmapObject):
+    """Arc V3 — slider com multiplicador e anchor mode.
+
+    Extende Chain com ``mu`` (multiplier), ``tmu`` (tail multiplier) e
+    ``m`` (anchor mode: 0=Straight, 1=Clockwise, 2=CounterClockwise).
+    """
+
+    x: int = 0
+    y: int = 0
+    c: NoteColor = NoteColor.RED
+    d: NoteCutDirection = NoteCutDirection.ANY
+    a: int = 0
+    tx: int = 0
+    ty: int = 0
+    tail_in_beats: float = 0.0
+    multiplier: float = 1.0
+    tail_multiplier: float = 1.0
+    anchor_mode: int = 0
+
+    @classmethod
+    def from_v3_dict(cls, data: Dict[str, Any]) -> "Arc":
+        return cls(
+            b=float(data["b"]),
+            x=int(data.get("x", 0)),
+            y=int(data.get("y", 0)),
+            c=NoteColor(data.get("c", 0)),
+            d=NoteCutDirection(data.get("d", 8)),
+            a=int(data.get("a", 0)),
+            tx=int(data.get("tx", 0)),
+            ty=int(data.get("ty", 0)),
+            tail_in_beats=float(data.get("tb", 0.0)),
+            multiplier=float(data.get("mu", 1.0)),
+            tail_multiplier=float(data.get("tmu", 1.0)),
+            anchor_mode=int(data.get("m", 0)),
+        )
+
+
+@dataclass
+class BpmEvent(BeatmapObject):
+    """Evento de mudança de BPM (V3 ``bpmEvents``). ``m`` = novo BPM."""
+
+    bpm: float = 0.0
+
+    @classmethod
+    def from_v3_dict(cls, data: Dict[str, Any]) -> "BpmEvent":
+        return cls(
+            b=float(data["b"]),
+            bpm=float(data.get("m", 0.0)),
+        )
+
+
+@dataclass
+class NjsEvent(BeatmapObject):
+    """Evento de mudança de NJS (V3 ``njsEvents``).
+
+    ``d`` = delta, ``p`` = usePrevious, ``e`` = easing.
+    """
+
+    delta: float = 0.0
+    use_previous: int = 0
+    easing: int = 0
+
+    @classmethod
+    def from_v3_dict(cls, data: Dict[str, Any]) -> "NjsEvent":
+        return cls(
+            b=float(data["b"]),
+            delta=float(data.get("d", 0.0)),
+            use_previous=int(data.get("p", 0)),
+            easing=int(data.get("e", 0)),
+        )
+
+
+@dataclass
 class Obstacle(BeatmapObject):
     """
     Representa um obstáculo (parede) no Beat Saber.

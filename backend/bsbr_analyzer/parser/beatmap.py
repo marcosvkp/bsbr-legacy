@@ -1,7 +1,7 @@
 from typing import Any, Dict, List
 
 from .enums import NoteColor, NoteCutDirection
-from .objects import Note, Obstacle
+from .objects import Arc, BpmEvent, Chain, NjsEvent, Note, Obstacle
 
 
 def detect_version(data: Dict[str, Any]) -> str:
@@ -24,6 +24,10 @@ class Beatmap:
         self.notes: List[Note] = []
         self.obstacles: List[Obstacle] = []
         self.bombs: List[Note] = []  # Separamos bombas de notas normais
+        self.chains: List[Chain] = []
+        self.arcs: List[Arc] = []
+        self.bpm_events: List[BpmEvent] = []
+        self.njs_events: List[NjsEvent] = []
 
     def parse_json(self, data: Dict[str, Any]):
         """
@@ -64,6 +68,15 @@ class Beatmap:
             )
         for o in data.get("obstacles", []):
             self.obstacles.append(Obstacle.from_v3_dict(o))
+        # V3: sliders = arcs, burstSliders = chains (nomenclatura do BL parser)
+        for ar in data.get("sliders", []):
+            self.arcs.append(Arc.from_v3_dict(ar))
+        for ch in data.get("burstSliders", []):
+            self.chains.append(Chain.from_v3_dict(ch))
+        for be in data.get("bpmEvents", []):
+            self.bpm_events.append(BpmEvent.from_v3_dict(be))
+        for ne in data.get("njsEvents", []):
+            self.njs_events.append(NjsEvent.from_v3_dict(ne))
 
     def _parse_v41(self, data: Dict[str, Any]):
         """
@@ -143,5 +156,58 @@ class Beatmap:
                     d=float(state["d"]),
                     w=int(state["w"]),
                     h=int(state["h"]),
+                )
+            )
+
+        # Chains (V4.1 — delta em chainsData)
+        chain_data = data.get("chainsData") or []
+        state = base_state(
+            chain_data,
+            {"x": 0, "y": 0, "c": 0, "d": 0, "a": 0, "tx": 0, "ty": 0, "tb": 0.0, "sc": 8, "s": 1.0},
+        )
+        for ch in data.get("chains", []):
+            i = ch.get("i")
+            if i is not None and i < len(chain_data):
+                apply_delta(state, chain_data[i])
+            self.chains.append(
+                Chain(
+                    b=float(ch["b"]),
+                    x=int(state["x"]),
+                    y=int(state["y"]),
+                    c=NoteColor(state["c"]),
+                    d=NoteCutDirection(state["d"]),
+                    a=int(state.get("a", 0)),
+                    tx=int(state.get("tx", 0)),
+                    ty=int(state.get("ty", 0)),
+                    tail_in_beats=float(state.get("tb", 0.0)),
+                    slice_count=int(state.get("sc", 8)),
+                    squish=float(state.get("s", 1.0)),
+                )
+            )
+
+        # Arcs (V4.1 — delta em arcsData)
+        arc_data = data.get("arcsData") or []
+        state = base_state(
+            arc_data,
+            {"x": 0, "y": 0, "c": 0, "d": 0, "a": 0, "tx": 0, "ty": 0, "tb": 0.0, "mu": 1.0, "tmu": 1.0, "m": 0},
+        )
+        for ar in data.get("arcs", []):
+            i = ar.get("i")
+            if i is not None and i < len(arc_data):
+                apply_delta(state, arc_data[i])
+            self.arcs.append(
+                Arc(
+                    b=float(ar["b"]),
+                    x=int(state["x"]),
+                    y=int(state["y"]),
+                    c=NoteColor(state["c"]),
+                    d=NoteCutDirection(state["d"]),
+                    a=int(state.get("a", 0)),
+                    tx=int(state.get("tx", 0)),
+                    ty=int(state.get("ty", 0)),
+                    tail_in_beats=float(state.get("tb", 0.0)),
+                    multiplier=float(state.get("mu", 1.0)),
+                    tail_multiplier=float(state.get("tmu", 1.0)),
+                    anchor_mode=int(state.get("m", 0)),
                 )
             )

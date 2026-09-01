@@ -80,3 +80,42 @@ def test_cut_directions_preserved():
     bm.parse_json(to_v2(specs))
     assert [int(n.d) for n in sorted(bm.notes, key=lambda n: n.b)] == list(range(9))
     assert NoteCutDirection.ANY == 8
+
+
+def test_v3_chains_arcs_parsed():
+    """V3: sliders = arcs, burstSliders = chains (nomenclatura BL)."""
+    chart = to_v3(
+        notes=[(0.0, 0, 0, 0, 1)],
+        arcs=[{"b": 1.0, "x": 0, "y": 0, "c": 0, "d": 1, "tb": 2.0, "tx": 3, "ty": 2, "mu": 1.5, "tmu": 1.0, "m": 0}],
+        chains=[{"b": 3.0, "x": 1, "y": 1, "c": 1, "d": 0, "tb": 4.0, "tx": 2, "ty": 0, "sc": 8, "s": 1.0}],
+    )
+    bm = Beatmap()
+    bm.parse_json(chart)
+    assert len(bm.arcs) == 1
+    assert len(bm.chains) == 1
+    assert bm.arcs[0].b == 1.0 and bm.arcs[0].multiplier == 1.5
+    assert bm.chains[0].b == 3.0 and bm.chains[0].slice_count == 8
+
+
+def test_v3_bpm_njs_events_parsed():
+    """BPM variable e NJS events (V3 bpmEvents/njsEvents)."""
+    chart = {
+        "version": "3.3.0",
+        "colorNotes": [{"b": 0.0, "x": 0, "y": 0, "c": 0, "d": 1, "a": 0}],
+        "bpmEvents": [{"b": 0.0, "m": 128.0}, {"b": 8.0, "m": 160.0}],
+        "njsEvents": [{"b": 4.0, "d": 2.0, "p": 0, "e": 0}],
+    }
+    bm = Beatmap()
+    bm.parse_json(chart)
+    assert len(bm.bpm_events) == 2
+    assert len(bm.njs_events) == 1
+    assert bm.bpm_events[1].bpm == 160.0
+    assert bm.njs_events[0].delta == 2.0
+
+
+def test_v2_has_no_chains_arcs_events():
+    """V2 não tem chains/arcs/bpmEvents — listas vazias."""
+    bm = Beatmap()
+    bm.parse_json(to_v2([(0.0, 0, 0, 0, 1)]))
+    assert bm.chains == [] and bm.arcs == []
+    assert bm.bpm_events == [] and bm.njs_events == []
