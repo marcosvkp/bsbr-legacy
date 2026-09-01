@@ -8,17 +8,18 @@ interface MapActionsProps {
   hash: string;
 }
 
-/** Link para o BeatSaver + botão de copiar o hash do mapa. */
+/** Link para o BeatSaver + botão de copiar o código do mapa (beatsaver_id). */
 export function MapActions({ beatsaverId, hash }: MapActionsProps) {
   const [copied, setCopied] = useState(false);
+  const code = beatsaverId ?? hash;
 
-  const copyHash = useCallback(async () => {
+  const copyCode = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(hash);
+      await navigator.clipboard.writeText(code);
     } catch {
       // Fallback para ambientes sem Clipboard API (http antigo etc.)
       const ta = document.createElement("textarea");
-      ta.value = hash;
+      ta.value = code;
       ta.style.position = "fixed";
       ta.style.opacity = "0";
       document.body.appendChild(ta);
@@ -28,7 +29,7 @@ export function MapActions({ beatsaverId, hash }: MapActionsProps) {
     }
     setCopied(true);
     window.setTimeout(() => setCopied(false), 2000);
-  }, [hash]);
+  }, [code]);
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -50,7 +51,7 @@ export function MapActions({ beatsaverId, hash }: MapActionsProps) {
           Ver no BeatSaver
         </a>
       ) : null}
-      <Button variant="secondary" size="md" onClick={copyHash} aria-live="polite">
+      <Button variant="secondary" size="md" onClick={copyCode} aria-live="polite">
         {copied ? (
           <span className="text-success">Copiado!</span>
         ) : (
