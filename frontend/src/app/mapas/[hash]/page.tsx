@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SmartImg } from "@/components/smart-img";
 import { BackendOffline, EmptyState } from "@/components/empty-state";
+import { MapActions } from "./map-actions";
 import { MapViewer } from "./map-viewer";
 
 export async function generateMetadata(
@@ -81,13 +82,16 @@ export default async function MapDetailPage(props: PageProps<"/mapas/[hash]">) {
             />
           </div>
           <div className="flex min-w-0 flex-1 flex-col gap-2">
-            <p className="text-xs font-semibold uppercase tracking-widest text-muted">
-              <Link href="/mapas" className="transition-colors hover:text-secondary">
-                Mapas
-              </Link>
-              <span className="mx-1.5 text-muted/40">/</span>
-              <span className="font-mono normal-case tracking-normal">{map.hash.slice(0, 12)}…</span>
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-semibold uppercase tracking-widest text-muted">
+                <Link href="/mapas" className="transition-colors hover:text-secondary">
+                  Mapas
+                </Link>
+                <span className="mx-1.5 text-muted/40">/</span>
+                <span className="font-mono normal-case tracking-normal">{map.hash.slice(0, 12)}…</span>
+              </p>
+              <MapActions beatsaverId={map.beatsaver_id} hash={map.hash} />
+            </div>
             <h1 className="font-display text-3xl font-extrabold uppercase leading-tight tracking-tight">
               {map.name}
             </h1>
