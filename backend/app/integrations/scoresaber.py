@@ -185,6 +185,40 @@ class ScoreSaberClient:
         )
         return result.scores
 
+    async def ranked_leaderboards(
+        self,
+        *,
+        min_stars: float | None = None,
+        max_stars: float | None = None,
+        sort_by: str = "stars",
+        sort_direction: str = "desc",
+        limit: int = 100,
+        page: int = 1,
+    ) -> tuple[list[dict[str, Any]], int | None]:
+        """Busca de leaderboards rankeados (`/api/v2/leaderboards?status=RANKED`).
+
+        Devolve ``(data, total_items)``. Cada item traz ``id``, ``map.hash``,
+        ``map.songName``, ``map.difficulties``, ``realm.stars``, ``maxScore`` e
+        ``totalScores``. Usada pelo dataset de referência (sort por stars) e
+        pelo remap (sort por totalScores).
+        """
+        params: dict[str, Any] = {
+            "status": "RANKED",
+            "sortBy": sort_by,
+            "sortDirection": sort_direction,
+            "limit": limit,
+            "page": page,
+        }
+        if min_stars is not None:
+            params["minStars"] = min_stars
+        if max_stars is not None:
+            params["maxStars"] = max_stars
+        data = await self._get("/v2/leaderboards", params)
+        if not data:
+            return [], None
+        metadata = data.get("metadata") or {}
+        return data.get("data", []), metadata.get("totalItems")
+
     async def leaderboard_info_by_hash(self, map_hash: str, difficulty_rank: int) -> dict[str, Any] | None:
         return await self._get(
             f"/leaderboard/by-hash/{map_hash}/info",

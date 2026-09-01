@@ -41,6 +41,7 @@ EXPECTED_TABLES = {
     "staff_users",
     "map_suggestions",
     "webhook_configs",
+    "star_reference",
 }
 
 

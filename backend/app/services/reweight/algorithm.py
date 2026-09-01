@@ -33,8 +33,19 @@ HIGH_MIN = 100
 MAX_ACC = 1.05  # descarta scores impossíveis (modifiers)
 
 
-def expected_median_acc(stars: float) -> float:
-    """Curva empírica do legado: 1★→96.5% … 5★→90.5% … piso 78%."""
+def expected_median_acc(stars: float, source: str = "scoresaber") -> float:
+    """Acc esperada para a estrela.
+
+    Se o dataset de referência foi carregado (`curve.load_curve`), usa a acc
+    mediana real da banda de 0,5★ (curva empírica do ScoreSaber). Onde a banda
+    é esparsa ou o dataset não foi coletado, cai para a curva do legado:
+    1★→96.5% … 5★→90.5% … piso 78%.
+    """
+    from app.services.reweight import curve
+
+    empirical = curve.empirical_expected_acc(stars, source)
+    if empirical is not None:
+        return empirical
     return max(0.78, 0.98 - stars * 0.015)
 
 
