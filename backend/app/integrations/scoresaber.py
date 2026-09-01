@@ -219,6 +219,30 @@ class ScoreSaberClient:
         metadata = data.get("metadata") or {}
         return data.get("data", []), metadata.get("totalItems")
 
+    async def ranked_leaderboards_by_star_band(
+        self,
+        min_stars: float,
+        max_stars: float,
+        *,
+        limit: int = 50,
+        page: int = 1,
+    ) -> list[dict[str, Any]]:
+        """Leaderboards rankeados na faixa de estrelas, por totalScores desc.
+
+        Usado pelo remap: doadores mais jogados da faixa (estimativa de acc
+        mais estável). Cada item traz ``id``, ``map.hash``, ``maxScore`` e
+        ``totalScores``.
+        """
+        data, _ = await self.ranked_leaderboards(
+            min_stars=min_stars,
+            max_stars=max_stars,
+            sort_by="totalScores",
+            sort_direction="desc",
+            limit=limit,
+            page=page,
+        )
+        return data
+
     async def leaderboard_info_by_hash(self, map_hash: str, difficulty_rank: int) -> dict[str, Any] | None:
         return await self._get(
             f"/leaderboard/by-hash/{map_hash}/info",
