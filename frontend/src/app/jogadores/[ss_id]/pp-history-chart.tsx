@@ -260,23 +260,21 @@ export function PpHistoryChart({ ssId, initial }: PpHistoryChartProps) {
             Pontos de Desempenho
           </text>
 
-          {/* Rótulos X */}
-          {rendered.xTicks.map((p, i) => {
+          {/* Rótulos X (o último tick "Agora" é omitido — o PP atual já está no perfil). */}
+          {rendered.xTicks.slice(0, -1).map((p, i) => {
             const pt = rendered.mapped.find((m) => m.ts === p.ts);
             if (!pt) return null;
-            const isLast = i === rendered.xTicks.length - 1;
             return (
               <text
                 key={`${p.ts}-${i}`}
                 x={pt.x}
                 y={H - 10}
-                textAnchor={i === 0 ? "start" : isLast ? "end" : "middle"}
+                textAnchor={i === 0 ? "start" : "middle"}
                 fontSize="10.5"
-                fill={isLast ? "var(--foreground)" : "var(--muted)"}
-                fontWeight={isLast ? 700 : 400}
+                fill="var(--muted)"
                 fontFamily={MONO}
               >
-                {isLast ? "AGORA" : daysAgoLabel(nowMs, p.ts)}
+                {daysAgoLabel(nowMs, p.ts)}
               </text>
             );
           })}
