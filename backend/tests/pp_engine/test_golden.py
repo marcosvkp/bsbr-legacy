@@ -1,7 +1,9 @@
 """Golden tests do motor de PP.
 
-- Paridade TOTAL com o módulo legado (``references/bsbr/app/scorecalc``),
-  importado dinamicamente via importlib: get_pp numa grade stars × acc.
+- Paridade TOTAL com o módulo legado (``backend/references/scorecalc.py``,
+  cópia do `references/bsbr/app/scorecalc/__init__.py` — o legado tem `.git`
+  próprio e não sobe no repo principal), importado dinamicamente via
+  importlib: get_pp numa grade stars × acc.
 - Invariantes de ``decompose_pp`` (Plan.md §3.2).
 - Contrato de ``weighted_pp`` e da calculadora +1pp.
 """
@@ -37,7 +39,7 @@ from app.services.pp_engine import (  # noqa: E402
 def _load_legacy():
     spec = importlib.util.spec_from_file_location(
         "legacy_scorecalc",
-        REPO_ROOT / "references" / "bsbr" / "app" / "scorecalc" / "__init__.py",
+        REPO_ROOT / "backend" / "references" / "scorecalc.py",
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
