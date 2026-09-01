@@ -57,12 +57,15 @@ def analyze_difficulty(
     scores: Iterable[Mapping],
     current_stars: float,
     *,
-    min_player_pp: float = MIN_PLAYER_PP,
+    min_player_pp: float | None = MIN_PLAYER_PP,
 ) -> ReweightResult:
     """Avalia um mapa/dificuldade.
 
     Cada score é um Mapping com chaves: ``acc`` (0..1), ``base_score`` (>0),
     ``full_combo`` (bool) e ``player_pp`` (float).
+
+    ``min_player_pp=None`` desliga o filtro por PP — usado pela amostra global
+    do ScoreSaber, cujo payload não entrega PP confiável por jogador.
     """
     valid: list[tuple[float, float]] = []  # (acc, weight)
     fc_count = 0
@@ -76,7 +79,7 @@ def analyze_difficulty(
         if s.get("full_combo"):
             fc_count += 1
         player_pp = float(s.get("player_pp") or 0)
-        if player_pp < min_player_pp:
+        if min_player_pp is not None and player_pp < min_player_pp:
             continue
         valid.append((acc, RANK_DECAY**i))
 

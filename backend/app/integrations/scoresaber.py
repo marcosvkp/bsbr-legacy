@@ -12,6 +12,7 @@ portados para httpx assíncrono):
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -21,6 +22,23 @@ from app.core.ratelimit import SlidingWindowLimiter
 
 _RETRY_STATUS = {429, 500, 502, 503}
 _MAX_ATTEMPTS = 3
+
+
+@dataclass(frozen=True)
+class LeaderboardScoresResult:
+    """Resultado paginado de um leaderboard com diagnóstico de transporte.
+
+    - ``transport_ok``: False se qualquer página falhar após as tentativas do
+      cliente — resposta parcial por falha NÃO é amostra válida.
+    - ``exhausted``: True quando o total informado foi alcançado ou uma página
+      vazia encerrou a coleção. Se o teto deliberado (max_pages) cortar antes
+      do fim, fica False (a janela superior pode ter sido usada de propósito).
+    """
+
+    scores: list[dict[str, Any]]
+    transport_ok: bool
+    exhausted: bool
+    pages_fetched: int
 
 
 class ScoreSaberClient:
@@ -101,6 +119,60 @@ class ScoreSaberClient:
 
     # ── Leaderboards ───────────────────────────────────────────────────────
 
+    async def leaderboard_scores_by_id_with_status(
+        self,
+        leaderboard_id: int | str,
+        *,
+        country: str | None = None,
+        max_pages: int | None = None,
+    ) -> LeaderboardScoresResult:
+        """Pagina os scores de um leaderboard usando os metadados da API.
+
+        A API real devolve ``itemsPerPage=12`` mesmo sem ``limit``; o legado
+        parava na 1ª página com ``len(batch) < 100`` e subcoletava o BR. Aqui
+        a paginação segue ``metadata.total`` / ``itemsPerPage`` / página vazia,
+        respeitando ``max_pages`` como teto deliberado.
+        """
+        scores: list[dict[str, Any]] = []
+        page = 1
+        total_hint: int | None = None
+        transport_ok = True
+        exhausted = False
+        pages_ok = 0
+        while True:
+            params: dict[str, Any] = {"page": page}
+            if country:
+                params["countries"] = country
+            data = await self._get(f"/leaderboard/by-id/{leaderboard_id}/scores", params)
+            if data is None:
+                transport_ok = False
+                break
+            pages_ok += 1
+            metadata = data.get("metadata") or {}
+            if page == 1:
+                total_hint = metadata.get("total")
+            batch = data.get("scores", [])
+            scores.extend(batch)
+            if not batch:
+                exhausted = True
+                break
+            if total_hint is not None:
+                if len(scores) >= total_hint:
+                    exhausted = True
+                    break
+            elif len(batch) < metadata.get("itemsPerPage", 0):
+                exhausted = True
+                break
+            if max_pages is not None and page >= max_pages:
+                break
+            page += 1
+        return LeaderboardScoresResult(
+            scores=scores,
+            transport_ok=transport_ok,
+            exhausted=exhausted,
+            pages_fetched=pages_ok,
+        )
+
     async def leaderboard_scores_by_id(
         self,
         leaderboard_id: int | str,
@@ -108,23 +180,10 @@ class ScoreSaberClient:
         country: str | None = None,
         max_pages: int | None = None,
     ) -> list[dict[str, Any]]:
-        scores: list[dict[str, Any]] = []
-        page = 1
-        while True:
-            params: dict[str, Any] = {"page": page}
-            if country:
-                params["countries"] = country
-            data = await self._get(f"/leaderboard/by-id/{leaderboard_id}/scores", params)
-            if not data:
-                break
-            batch = data.get("scores", [])
-            if not batch:
-                break
-            scores.extend(batch)
-            if len(batch) < 100 or (max_pages is not None and page >= max_pages):
-                break
-            page += 1
-        return scores
+        result = await self.leaderboard_scores_by_id_with_status(
+            leaderboard_id, country=country, max_pages=max_pages
+        )
+        return result.scores
 
     async def leaderboard_info_by_hash(self, map_hash: str, difficulty_rank: int) -> dict[str, Any] | None:
         return await self._get(

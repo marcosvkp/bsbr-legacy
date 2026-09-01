@@ -27,6 +27,7 @@ from app.models import (
 )
 from app.services.reweight import (
     AUTO_APPLY_MAX,
+    MIN_PLAYER_PP,
     ReweightResult,
     analyze_difficulty,
 )
@@ -62,6 +63,8 @@ async def analyze_difficulty_with_ml(
     difficulty: Difficulty,
     map_: Map,
     scores: list[dict],
+    *,
+    min_player_pp: float | None = MIN_PLAYER_PP,
 ) -> ReweightResult:
     """Análise de reweight combinando o ML (stars do beatmap) com a performance.
 
@@ -69,8 +72,10 @@ async def analyze_difficulty_with_ml(
     a performance observada (acc mediana vs esperada) dá ``delta_perf``. O
     delta final é a média dos dois — "o ML acha que o mapa vale X★" aliado a
     "os scores estão rendendo acima/abaixo do esperado".
+
+    ``min_player_pp=None`` desliga o filtro por PP (amostra global/remap).
     """
-    base = analyze_difficulty(scores, float(difficulty.total_stars))
+    base = analyze_difficulty(scores, float(difficulty.total_stars), min_player_pp=min_player_pp)
     if base.confidence == "none":
         return base
 
