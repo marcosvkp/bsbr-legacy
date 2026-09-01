@@ -64,14 +64,16 @@ async def build_pp_history(
         return {"ss_id": player.ss_id, "days": days, "now": now.isoformat(), "current_pp_total": None, "points": []}
 
     # Estado inicial: scores anteriores à janela já contavam no total do início.
+    # time_set pode vir naive (SQLite) ou aware-UTC (Postgres) — normaliza para comparar.
     initial: list[dict] = []
-    window_events: list[dict] = []
+    window_events: list[tuple[datetime, dict]] = []
     for s in rows:
+        ts = _as_utc(s.time_set)
         entry = {"pp": float(s.pp), "pp_acc": s.pp_acc, "pp_tech": s.pp_tech, "pp_speed": s.pp_speed}
-        if s.time_set is None or s.time_set < window_start:
+        if ts is None or ts < window_start:
             initial.append(entry)
         else:
-            window_events.append((s.time_set, entry))
+            window_events.append((ts, entry))
 
     inserted = list(initial)
     # (ts, totais, estimated) — o ponto 0 da borda sem scores é estimado (leading tracejado).
@@ -167,5 +169,13 @@ def _merge_interpolated(points: list[dict], interpolated: list[dict]) -> list[di
 
 
 def _now() -> datetime:
-    # time_set é naive-UTC no banco (sync normaliza); manter naive para comparar.
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(timezone.utc)
+
+
+def _as_utc(value: datetime | None) -> datetime | None:
+    """Normaliza time_set (naive no SQLite, aware-UTC no Postgres) para aware-UTC."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
