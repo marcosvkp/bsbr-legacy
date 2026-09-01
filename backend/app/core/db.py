@@ -80,9 +80,24 @@ async def task_session_factory():
 
 
 async def get_db() -> AsyncIterator[AsyncSession]:
-    """Dependency FastAPI: sessão por request."""
-    async with SessionLocal() as session:
-        yield session
+    """Dependency FastAPI: sessão por request.
+
+    Usa o sessionmaker do loop atual quando o engine global foi substituído
+    (testes com sqlite em arquivo): o pool do engine original foi criado no
+    loop da importação e quebra com "attached to a different loop" quando o
+    TestClient roda em loop novo (no Windows o asyncio reusa o loop, então o
+    problema só aparece no CI/Linux).
+    """
+    if engine is _ORIGINAL_ENGINE:
+        async with SessionLocal() as session:
+            yield session
+        return
+    task_sessionmaker, close = await task_session_factory()
+    try:
+        async with task_sessionmaker() as session:
+            yield session
+    finally:
+        await close()
 
 
 async def init_db() -> None:
