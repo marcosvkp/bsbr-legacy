@@ -51,13 +51,21 @@ async def client(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _clean_limiters():
-    """Isola o registry de rate-limit por IP entre testes."""
+async def _clean_limiters():
+    """Isola o rate-limit por IP entre testes.
+
+    Com REDIS_URL (CI), o estado da janela vive no ZSET do Redis; sem reset,
+    o IP do TestClient ("testclient") acumula até o limite de 10/h entre
+    testes e os POSTs seguintes tomam 429. Reseta todos os limiters já
+    criados no setup E no teardown (o registry persiste entre testes).
+    """
     import app.services.suggestions as svc
 
-    svc._ip_limiters.clear()
+    for limiter in list(svc._ip_limiters.values()):
+        await limiter.reset()
     yield
-    svc._ip_limiters.clear()
+    for limiter in list(svc._ip_limiters.values()):
+        await limiter.reset()
 
 
 @pytest.fixture

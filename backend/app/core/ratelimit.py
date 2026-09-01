@@ -45,6 +45,21 @@ class SlidingWindowLimiter:
         """Tentativa única não-bloqueante: 0.0 = adquiriu; >0 = segundos até a próxima vaga."""
         return await self._try_acquire_once()
 
+    async def reset(self) -> None:
+        """Zera o estado da janela (isolamento entre testes/execuções).
+
+        Sem Redis, limpa o deque local. Com Redis, apaga o ZSET — usado pelos
+        testes com REDIS_URL (CI), onde o estado vive no Redis e não no
+        registry em memória do chamador.
+        """
+        if cache._url:  # noqa: SLF001
+            await cache._ensure_redis()
+        redis = self._redis
+        if redis is not None:
+            await redis.delete(self.name)
+        else:
+            self._local.clear()
+
     async def _try_acquire_once(self) -> float:
         now = time.time()
         window_start = now - self.period
