@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getJson } from "@/lib/api";
 import { formatPp } from "@/lib/format";
-import type { PpHistoryPoint, PpHistoryResponse } from "@/lib/types";
+import type { PpHistoryResponse } from "@/lib/types";
 
-const W = 640;
-const H = 240;
-const PAD = { left: 56, right: 40, top: 16, bottom: 30 };
+const W = 680;
+const H = 264;
+const PAD = { left: 60, right: 48, top: 20, bottom: 34 };
+
+const MONO = "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
 
 const DAY_OPTIONS = [7, 30, 90, 180] as const;
 
@@ -36,8 +38,11 @@ interface PpHistoryChartProps {
 }
 
 /**
- * Progressão de PP por timestamp dos scores: pontos reais (sólido) e amostras
- * estimadas em gaps sem dados (tracejado), com tooltip e handle "Agora".
+ * Progressão de PP por timestamp dos scores.
+ *
+ * Direção visual: a essência é a dualidade real × estimado — a linha real
+ * "acende" (gradiente) conforme se aproxima do presente; o passado sem dados
+ * é um fantasma tracejado atenuado; o handle "Agora" é o pulso ao vivo.
  */
 export function PpHistoryChart({ ssId, initial }: PpHistoryChartProps) {
   const [days, setDays] = useState<number>(initial?.days ?? 180);
@@ -95,24 +100,19 @@ export function PpHistoryChart({ ssId, initial }: PpHistoryChartProps) {
       PAD.top + (bounds.max - value) / (bounds.max - bounds.min || 1) * plotH;
     const x = (ts: string) => PAD.left + ((new Date(ts).getTime() - t0) / span) * plotW;
 
-    const mapped: { x: number; y: number; estimated: boolean; pp: number | null; ts: string }[] = points.map(
-      (p) => ({
-        x: x(p.ts),
-        y: p.pp_total !== null ? y(p.pp_total) : NaN,
-        estimated: p.estimated,
-        pp: p.pp_total,
-        ts: p.ts,
-      }),
-    );
+    const mapped = points.map((p) => ({
+      x: x(p.ts),
+      y: p.pp_total !== null ? y(p.pp_total) : NaN,
+      estimated: p.estimated,
+      pp: p.pp_total,
+      ts: p.ts,
+    }));
 
-    // Polilinha única para a área de preenchimento (todos os pontos).
     const areaPath =
       mapped.length > 1
         ? `${mapped.map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")}`
         : "";
 
-    // Separa em sub-caminhos sólido/tracejado por segmento (estimado = tracejado).
-    // Cada run novo (troca de estilo) recomeça com M; dentro do run segue com L.
     let solidPath = "";
     let dashedPath = "";
     let prevStyle: "solid" | "dashed" | null = null;
@@ -131,7 +131,6 @@ export function PpHistoryChart({ ssId, initial }: PpHistoryChartProps) {
       y: PAD.top + plotH * t,
     }));
 
-    // 4 rótulos X: início, 1/3, 2/3, fim ("Agora").
     const xTicks = [0, 1 / 3, 2 / 3, 1]
       .map((t) => points[Math.min(points.length - 1, Math.round((points.length - 1) * t))])
       .filter(Boolean);
@@ -152,33 +151,43 @@ export function PpHistoryChart({ ssId, initial }: PpHistoryChartProps) {
   const hovered = hover !== null ? rendered.mapped[hover] : null;
   const last = rendered.mapped[rendered.mapped.length - 1];
 
+  // Posiciona o tooltip sem estourar as bordas do gráfico.
+  const tooltipPos = hovered
+    ? {
+        left: `${(hovered.x / W) * 100}%`,
+        top: `${(hovered.y / H) * 100}%`,
+        translateX: hovered.x < 64 ? "0%" : hovered.x > W - 64 ? "-100%" : "-50%",
+      }
+    : null;
+
   return (
-    <figure className="flex flex-col gap-2">
-      {/* Seletor de janela */}
+    <figure className="flex flex-col gap-3">
+      {/* Legenda + seletor de janela */}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-1 text-xs text-muted">
+        <div className="flex items-center gap-3 text-[11px] font-medium uppercase tracking-wider text-muted">
           <span className="flex items-center gap-1.5">
-            <span aria-hidden="true" className="h-0.5 w-4 rounded-full bg-accent" />
-            PP real
+            <span aria-hidden="true" className="h-0.5 w-5 rounded-full bg-accent shadow-[0_0_6px_var(--accent)]" />
+            Real
           </span>
           <span className="flex items-center gap-1.5">
-            <svg aria-hidden="true" width="16" height="4">
-              <line x1="0" y1="2" x2="16" y2="2" stroke="var(--accent)" strokeWidth="2" strokeDasharray="4 3" />
+            <svg aria-hidden="true" width="20" height="4" className="text-accent/60">
+              <line x1="0" y1="2" x2="20" y2="2" stroke="currentColor" strokeWidth="2" strokeDasharray="5 3" strokeLinecap="round" />
             </svg>
-            estimado
+            Estimado
           </span>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-0.5 rounded-lg border border-border-subtle bg-surface p-0.5">
           {DAY_OPTIONS.map((n) => (
             <button
               key={n}
               type="button"
               onClick={() => changeDays(n)}
               disabled={loading}
-              className={`rounded-md border px-2 py-1 text-xs font-semibold transition-colors disabled:opacity-50 ${
+              aria-pressed={days === n}
+              className={`rounded-md px-2.5 py-1 text-xs font-semibold tabular-nums transition-colors disabled:opacity-50 ${
                 days === n
-                  ? "border-accent/50 bg-accent/10 text-accent"
-                  : "border-border-subtle bg-surface text-muted hover:text-foreground"
+                  ? "bg-accent/15 text-accent shadow-[inset_0_0_0_1px_rgba(239,68,68,0.35)]"
+                  : "text-muted hover:text-foreground"
               }`}
             >
               {n}d
@@ -192,9 +201,29 @@ export function PpHistoryChart({ ssId, initial }: PpHistoryChartProps) {
           viewBox={`0 0 ${W} ${H}`}
           role="img"
           aria-label={`Progressão de PP nos últimos ${days} dias`}
-          className={`w-full transition-opacity ${loading ? "opacity-40" : ""}`}
+          className={`w-full transition-opacity duration-300 ${loading ? "opacity-40" : ""}`}
         >
-          {/* Grid + eixo Y (esquerda) */}
+          <defs>
+            {/* Linha "acende" ao se aproximar do presente */}
+            <linearGradient id="pp-line" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.45" />
+              <stop offset="70%" stopColor="var(--accent)" stopOpacity="0.9" />
+              <stop offset="100%" stopColor="var(--accent)" />
+            </linearGradient>
+            <linearGradient id="pp-area" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.16" />
+              <stop offset="100%" stopColor="var(--accent)" stopOpacity="0.02" />
+            </linearGradient>
+            <filter id="pp-glow" x="-40%" y="-40%" width="180%" height="180%">
+              <feGaussianBlur stdDeviation="3" result="blur" />
+              <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
+
+          {/* Grid horizontal + ticks Y */}
           {rendered.yTicks.map((tick) => (
             <g key={tick.y}>
               <line
@@ -204,71 +233,101 @@ export function PpHistoryChart({ ssId, initial }: PpHistoryChartProps) {
                 y2={tick.y}
                 stroke="currentColor"
                 strokeWidth="0.5"
-                className="text-border-subtle/60"
+                className="text-border-subtle/50"
               />
-              <text x={PAD.left - 8} y={tick.y + 3} textAnchor="end" fontSize="10" fill="var(--muted)">
+              <text
+                x={PAD.left - 10}
+                y={tick.y + 3.5}
+                textAnchor="end"
+                fontSize="10.5"
+                fill="var(--muted)"
+                fontFamily={MONO}
+              >
                 {formatAxisPp(tick.value)}
               </text>
             </g>
           ))}
+
           {/* Rótulo do eixo Y */}
           <text
-            transform={`translate(12, ${H / 2}) rotate(-90)`}
+            transform={`translate(15, ${H / 2}) rotate(-90)`}
             textAnchor="middle"
             fontSize="10"
-            fill="var(--accent)"
-            letterSpacing="0.08em"
+            fill="var(--muted)"
+            letterSpacing="0.12em"
+            style={{ textTransform: "uppercase" }}
           >
             Pontos de Desempenho
           </text>
 
           {/* Rótulos X */}
-          {rendered.xTicks.map((p, i) => (
-            <text
-              key={`${p.ts}-${i}`}
-              x={rendered.mapped.find((m) => m.ts === p.ts)?.x ?? 0}
-              y={H - 8}
-              textAnchor={i === 0 ? "start" : i === rendered.xTicks.length - 1 ? "end" : "middle"}
-              fontSize="10"
-              fill="var(--muted)"
-            >
-              {i === rendered.xTicks.length - 1 ? "Agora" : daysAgoLabel(nowMs, p.ts)}
-            </text>
-          ))}
+          {rendered.xTicks.map((p, i) => {
+            const pt = rendered.mapped.find((m) => m.ts === p.ts);
+            if (!pt) return null;
+            const isLast = i === rendered.xTicks.length - 1;
+            return (
+              <text
+                key={`${p.ts}-${i}`}
+                x={pt.x}
+                y={H - 10}
+                textAnchor={i === 0 ? "start" : isLast ? "end" : "middle"}
+                fontSize="10.5"
+                fill={isLast ? "var(--foreground)" : "var(--muted)"}
+                fontWeight={isLast ? 700 : 400}
+                fontFamily={MONO}
+              >
+                {isLast ? "AGORA" : daysAgoLabel(nowMs, p.ts)}
+              </text>
+            );
+          })}
 
-          {/* Área (todos os pontos) */}
+          {/* Área preenchida (gradiente vertical) */}
           {rendered.areaPath ? (
             <path
               d={`${rendered.areaPath}L${rendered.mapped[rendered.mapped.length - 1].x.toFixed(1)},${H - PAD.bottom}L${rendered.mapped[0].x.toFixed(1)},${H - PAD.bottom}Z`}
-              fill="var(--accent)"
-              fillOpacity="0.08"
+              fill="url(#pp-area)"
             />
           ) : null}
 
-          {/* Linhas: sólida (real) + tracejada (estimado) */}
-          {rendered.solidPath ? (
-            <path
-              d={rendered.solidPath}
-              fill="none"
-              stroke="var(--accent)"
-              strokeWidth="2"
-              strokeLinejoin="round"
-              strokeLinecap="round"
-            />
-          ) : null}
+          {/* Linha estimada (fantasma tracejado) */}
           {rendered.dashedPath ? (
             <path
               d={rendered.dashedPath}
               fill="none"
               stroke="var(--accent)"
+              strokeOpacity="0.5"
               strokeWidth="2"
-              strokeDasharray="6 5"
+              strokeDasharray="5 6"
               strokeLinejoin="round"
               strokeLinecap="round"
             />
           ) : null}
 
-          {/* Marcadores + hit areas do tooltip */}
+          {/* Linha real (sólida com gradiente + glow) */}
+          {rendered.solidPath ? (
+            <>
+              <path
+                d={rendered.solidPath}
+                fill="none"
+                stroke="var(--accent)"
+                strokeOpacity="0.18"
+                strokeWidth="6"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                filter="url(#pp-glow)"
+              />
+              <path
+                d={rendered.solidPath}
+                fill="none"
+                stroke="url(#pp-line)"
+                strokeWidth="2.25"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
+            </>
+          ) : null}
+
+          {/* Marcadores + hit areas */}
           {rendered.mapped.map((p, i) => {
             if (!Number.isFinite(p.y)) return null;
             return (
@@ -276,7 +335,7 @@ export function PpHistoryChart({ ssId, initial }: PpHistoryChartProps) {
                 <circle
                   cx={p.x}
                   cy={p.y}
-                  r="9"
+                  r="10"
                   fill="transparent"
                   className="cursor-pointer"
                   onMouseEnter={() => setHover(i)}
@@ -285,51 +344,73 @@ export function PpHistoryChart({ ssId, initial }: PpHistoryChartProps) {
                 <circle
                   cx={p.x}
                   cy={p.y}
-                  r={p.estimated ? 2.5 : 3}
-                  fill={p.estimated ? "var(--surface)" : "var(--accent)"}
-                  stroke="var(--accent)"
-                  strokeWidth={p.estimated ? 1 : 0}
+                  r={p.estimated ? 2.5 : 3.5}
+                  fill={p.estimated ? "var(--surface-2)" : "var(--accent)"}
+                  stroke={p.estimated ? "var(--accent)" : "var(--background)"}
+                  strokeOpacity={p.estimated ? 0.5 : undefined}
+                  strokeWidth={p.estimated ? 1 : 1.5}
+                  opacity={p.estimated ? 0.75 : 1}
                   pointerEvents="none"
                 />
               </g>
             );
           })}
 
-          {/* Handle "Agora" (ponto final) */}
+          {/* Handle "Agora" — pulso ao vivo */}
           {last && Number.isFinite(last.y) ? (
             <g pointerEvents="none">
-              <circle cx={last.x} cy={last.y} r="6.5" fill="var(--accent)" />
+              <circle cx={last.x} cy={last.y} r="11" fill="none" stroke="var(--accent)" strokeOpacity="0.3" strokeWidth="1.5" />
+              <circle cx={last.x} cy={last.y} r="6" fill="var(--accent)" filter="url(#pp-glow)" />
               <path
-                d={`M${last.x + 1.5},${last.y - 3} L${last.x + 4.5},${last.y} L${last.x + 1.5},${last.y + 3} Z`}
+                d={`M${last.x + 1},${last.y - 2.75} L${last.x + 4},${last.y} L${last.x + 1},${last.y + 2.75} Z`}
                 fill="white"
               />
             </g>
           ) : null}
 
           {rendered.empty ? (
-            <text x={W / 2} y={H / 2} textAnchor="middle" fontSize="12" fill="var(--muted)">
-              Sem scores rankeados no período
-            </text>
+            <g>
+              <circle cx={W / 2} cy={H / 2 - 12} r="9" fill="none" stroke="var(--muted)" strokeWidth="1.5" />
+              <path
+                d={`M${W / 2 - 5},${H / 2 - 12} L${W / 2 + 5},${H / 2 - 12} M${W / 2},${H / 2 - 17} L${W / 2},${H / 2 - 7}`}
+                stroke="var(--muted)"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
+              <text x={W / 2} y={H / 2 + 14} textAnchor="middle" fontSize="12" fill="var(--muted)">
+                Sem scores rankeados no período
+              </text>
+            </g>
           ) : null}
         </svg>
 
-        {/* Tooltip */}
-        {hovered && Number.isFinite(hovered.y) ? (
+        {/* Tooltip com seta */}
+        {hovered && Number.isFinite(hovered.y) && tooltipPos ? (
           <div
             role="tooltip"
-            className="pointer-events-none absolute z-10 -translate-x-1/2 -translate-y-full rounded-md border border-border-subtle bg-surface-2 px-2.5 py-1.5 text-xs shadow-lg"
+            className="pointer-events-none absolute z-10"
             style={{
-              left: `${(hovered.x / W) * 100}%`,
-              top: `${(hovered.y / H) * 100}%`,
+              left: tooltipPos.left,
+              top: tooltipPos.top,
+              transform: `translate(${tooltipPos.translateX}, -100%) translateY(-10px)`,
             }}
           >
-            <span className="flex items-center gap-1.5 whitespace-nowrap text-muted">
-              <span aria-hidden="true" className="h-2 w-2 rounded-sm bg-accent" />
-              {daysAgoLabel(nowMs, hovered.ts)}
-            </span>
-            <span className="whitespace-nowrap font-semibold tabular-nums">
-              PP: {formatPp(hovered.pp)}pp{hovered.estimated ? " (estimado)" : ""}
-            </span>
+            <div className="rounded-lg border border-accent/25 bg-surface-2/95 px-3 py-2 shadow-[0_8px_24px_rgba(0,0,0,0.5)] backdrop-blur-sm">
+              <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-muted">
+                <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_5px_var(--accent)]" />
+                {daysAgoLabel(nowMs, hovered.ts)}
+              </div>
+              <div className="mt-1 whitespace-nowrap font-mono text-sm font-semibold tabular-nums text-foreground">
+                {formatPp(hovered.pp)}
+                <span className="text-muted">pp</span>
+                {hovered.estimated ? (
+                  <span className="ml-1.5 text-[10px] font-medium uppercase tracking-wider text-accent/80">
+                    estimado
+                  </span>
+                ) : null}
+              </div>
+            </div>
+            <div className="mx-auto h-2 w-2 -translate-y-1 rotate-45 border-b border-r border-accent/25 bg-surface-2" />
           </div>
         ) : null}
       </div>
