@@ -82,22 +82,25 @@ async def task_session_factory():
 async def get_db() -> AsyncIterator[AsyncSession]:
     """Dependency FastAPI: sessão por request.
 
-    Usa o sessionmaker do loop atual quando o engine global foi substituído
-    (testes com sqlite em arquivo): o pool do engine original foi criado no
-    loop da importação e quebra com "attached to a different loop" quando o
-    TestClient roda em loop novo (no Windows o asyncio reusa o loop, então o
-    problema só aparece no CI/Linux).
+    Quando o engine global foi substituído nos testes (sqlite em arquivo),
+    o sessionmaker precisa ser criado DENTRO do loop do request. O TestClient
+    do Starlette roda cada request num loop próprio (portal anyio) — um
+    sessionmaker criado na thread do pytest aponta para o pool do loop do
+    pytest e quebra com "attached to a different loop" (CI/Linux; no Windows
+    o asyncio reusa o loop e o problema não aparece).
     """
-    if engine is _ORIGINAL_ENGINE:
-        async with SessionLocal() as session:
-            yield session
+    if engine is not _ORIGINAL_ENGINE:
+        # Testes: engine mockado → cria o sessionmaker no loop do request.
+        test_engine = create_async_engine(engine.url, echo=False, future=True)
+        sessionmaker = async_sessionmaker(test_engine, expire_on_commit=False)
+        try:
+            async with sessionmaker() as session:
+                yield session
+        finally:
+            await test_engine.dispose()
         return
-    task_sessionmaker, close = await task_session_factory()
-    try:
-        async with task_sessionmaker() as session:
-            yield session
-    finally:
-        await close()
+    async with SessionLocal() as session:
+        yield session
 
 
 async def init_db() -> None:
