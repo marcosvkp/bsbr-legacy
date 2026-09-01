@@ -4,6 +4,7 @@ Usa Redis (ZSET de timestamps) quando disponível — o limite vale para API,
 workers e beat juntos. Sem Redis, cai para memória do processo (dev).
 """
 
+import asyncio
 import time
 from collections import deque
 from typing import Any
@@ -20,21 +21,25 @@ class SlidingWindowLimiter:
 
     @property
     def _redis(self) -> Any:
-        # Lido dinamicamente: as tasks celery recriam cache._redis por loop
-        # (task_redis_client); capturar no __init__ prenderia um cliente de
-        # um loop já fechado → "Event loop is closed".
-        return cache._redis  # noqa: SLF001 — mesma infra de cache
+        """Cliente Redis atual; resolvido pelo cache por event loop."""
+        return cache._redis  # noqa: SLF001
 
     @property
     def is_shared(self) -> bool:
-        return self._redis is not None
+        return cache._redis is not None  # noqa: SLF001
 
     async def acquire(self) -> float:
-        """Bloqueia até uma vaga abrir na janela. Retorna segundos esperados."""
+        """Bloqueia até uma vaga abrir na janela. Retorna segundos esperados.
+
+        Sem o sleep, um excesso de chamadas vira busy-loop no Redis (e o
+        request fica pendurado para sempre — a coleta global/remap do reweight
+        faz ~1000 chamadas e estoura a janela de 350/min).
+        """
         while True:
             waited = await self.try_acquire()
             if waited == 0.0:
                 return 0.0
+            await asyncio.sleep(waited)
 
     async def try_acquire(self) -> float:
         """Tentativa única não-bloqueante: 0.0 = adquiriu; >0 = segundos até a próxima vaga."""
@@ -44,16 +49,19 @@ class SlidingWindowLimiter:
         now = time.time()
         window_start = now - self.period
 
-        if self._redis is not None:
-            pipe = self._redis.pipeline()
+        if cache._url:  # noqa: SLF001
+            await cache._ensure_redis()
+        redis = self._redis
+        if redis is not None:
+            pipe = redis.pipeline()
             pipe.zremrangebyscore(self.name, "-inf", window_start)
             pipe.zcard(self.name)
             _, count = await pipe.execute()
             if count < self.max_calls:
-                await self._redis.zadd(self.name, {str(now): now})
-                await self._redis.expire(self.name, self.period)
+                await redis.zadd(self.name, {str(now): now})
+                await redis.expire(self.name, self.period)
                 return 0.0
-            oldest = await self._redis.zrange(self.name, 0, 0, withscores=True)
+            oldest = await redis.zrange(self.name, 0, 0, withscores=True)
             if not oldest:
                 return 0.0
             return float(oldest[0][1]) + self.period - now

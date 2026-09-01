@@ -17,13 +17,12 @@ def ping() -> str:
 
 
 async def run_weekly_batch() -> dict:
-    from app.core.cache import cache, task_redis_client
+    from app.core.cache import cache
     from app.core.db import task_session_factory  # engine isolado por loop (tasks celery)
 
-    # O cache._redis global foi criado no processo pai (pré-fork) com conexões
-    # de um loop que já fechou; recria no loop desta execução (mesmo padrão do
-    # engine do banco). Sem isso: "Event loop is closed" no rate-limiter.
-    cache._redis = await task_redis_client()
+    # O cliente Redis é criado no loop desta execução; o cache troca clientes
+    # quando uma nova execução de asyncio.run usa outro loop.
+    await cache._ensure_redis()  # noqa: SLF001
 
     SessionLocal, close_db = await task_session_factory()
     from app.integrations.discord import history_rows, send_reweight_report
@@ -133,9 +132,9 @@ def sync_br_daily() -> dict:
     from app.services.sync import sync_all_ranked_difficulties
 
     async def _run() -> dict:
-        from app.core.cache import cache, task_redis_client
+        from app.core.cache import cache
 
-        cache._redis = await task_redis_client()  # cliente Redis novo no loop atual
+        await cache._ensure_redis()  # noqa: SLF001
         SessionLocal, close_db = await task_session_factory()
         try:
             async with SessionLocal() as session:

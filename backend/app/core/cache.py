@@ -2,6 +2,7 @@
 memória de processo caso contrário (dev local sem serviços).
 """
 
+import asyncio
 import time
 from typing import Any
 
@@ -17,17 +18,48 @@ _MEMORY_MAX_KEYS = 10_000
 class Cache:
     def __init__(self) -> None:
         self._redis = None
-        url = get_settings().redis_url
-        if url:
-            import redis.asyncio as aioredis
-
-            self._redis = aioredis.from_url(url, decode_responses=True)
+        self._redis_loop = None
+        self._url = get_settings().redis_url
 
     @property
     def is_redis(self) -> bool:
         return self._redis is not None
 
+    async def _ensure_redis(self):
+        """Garante um cliente Redis associado ao event loop atual.
+
+        ``redis.asyncio`` mantém conexões no pool associadas ao loop em que
+        foram usadas. Isso importa para o ``TestClient`` do Starlette e para
+        tasks Celery que usam ``asyncio.run``: cada execução pode ter um loop
+        novo, então um cliente global de um loop anterior não pode ser
+        reutilizado.
+        """
+        if not self._url:
+            return
+
+        loop = asyncio.get_running_loop()
+        if self._redis is not None and self._redis_loop is loop:
+            return
+
+        old_redis = self._redis
+        self._redis = None
+        self._redis_loop = None
+        if old_redis is not None:
+            try:
+                await old_redis.aclose()
+            except Exception:
+                # O loop anterior pode já ter sido encerrado; o cliente não
+                # será reutilizado, portanto o fechamento é best effort.
+                pass
+
+        import redis.asyncio as aioredis
+
+        self._redis = aioredis.from_url(self._url, decode_responses=True)
+        self._redis_loop = loop
+
     async def get_json(self, key: str) -> Any | None:
+        if self._url:
+            await self._ensure_redis()
         if self._redis is not None:
             raw = await self._redis.get(key)
             return orjson.loads(raw) if raw else None
@@ -36,6 +68,8 @@ class Cache:
         return orjson.loads(entry[1]) if entry else None
 
     async def set_json(self, key: str, value: Any, ttl: int = 60) -> None:
+        if self._url:
+            await self._ensure_redis()
         payload = orjson.dumps(value)
         if self._redis is not None:
             await self._redis.set(key, payload, ex=ttl)
@@ -47,6 +81,8 @@ class Cache:
         _MEMORY_TTL_ORDER.append(key)
 
     async def invalidate(self, *keys: str) -> None:
+        if self._url:
+            await self._ensure_redis()
         for key in keys:
             if self._redis is not None:
                 await self._redis.delete(key)
@@ -56,6 +92,8 @@ class Cache:
     async def invalidate_prefix(self, prefix: str) -> int:
         """Remove todas as chaves com o prefixo dado. Retorna quantas caíram."""
         removed = 0
+        if self._url:
+            await self._ensure_redis()
         if self._redis is not None:
             async for key in self._redis.scan_iter(match=f"{prefix}*"):
                 await self._redis.delete(key)
