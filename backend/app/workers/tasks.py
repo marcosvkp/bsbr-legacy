@@ -41,9 +41,7 @@ async def run_weekly_batch() -> dict:
 
         try:
             sync_stats = await sync_all_ranked_difficulties(session)
-            reweight_stats = await collect_suggestions(
-                session, batch_id=batch.id, use_global=True
-            )
+            reweight_stats = await collect_suggestions(session, batch_id=batch.id)
             ranking = await recompute_all_rankings(session)
             snapshot_count = await write_weekly_snapshot(session)
 
@@ -89,14 +87,6 @@ async def run_weekly_batch() -> dict:
                 "players_updated": ranking.players_updated,
                 "snapshot_players": snapshot_count,
                 "ratings_changed": len(changed),
-                # Cobertura da amostra (global/remap/BR) — Plan Algoryth
-                "reweight_global_scores_fetched": reweight_stats["global_scores_fetched"],
-                "reweight_global_difficulties_used": reweight_stats["global_difficulties_used"],
-                "reweight_br_fallbacks": reweight_stats["br_fallbacks"],
-                "reweight_remap_difficulties_used": reweight_stats["remap_difficulties_used"],
-                "reweight_remap_scores_fetched": reweight_stats["remap_scores_fetched"],
-                "reweight_remap_candidates_found": reweight_stats["remap_candidates_found"],
-                "reweight_remap_donors_used": reweight_stats["remap_donors_used"],
             }
             await session.commit()
 

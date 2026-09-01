@@ -109,34 +109,6 @@ class BeatLeaderClient:
 
     # ── Leaderboards ──────────────────────────────────────────────────────
 
-    async def ranked_leaderboards(
-        self,
-        *,
-        sort_by: str = "stars",
-        order: str = "desc",
-        count: int = 40,
-        page: int = 1,
-    ) -> tuple[list[dict[str, Any]], int | None]:
-        """Busca de leaderboards (`/leaderboards?ranked=true`).
-
-        Devolve ``(data, total)``. Cada item traz ``id``, ``song.hash``,
-        ``song.name``, ``difficulty.stars`` e ``difficulty.maxScore``. Usada
-        pelo dataset de referência (escala do BL chega ~15,8★, ancorando o
-        trecho alto onde o ScoreSaber para em 14,58★).
-        """
-        params: dict[str, Any] = {
-            "page": page,
-            "count": count,
-            "ranked": "true",
-            "sortBy": sort_by,
-            "order": order,
-        }
-        data = await self._get("/leaderboards", params)
-        if not data:
-            return [], None
-        metadata = data.get("metadata") or {}
-        return data.get("data", []), metadata.get("total")
-
     async def leaderboard_by_id(self, leaderboard_id: str) -> dict[str, Any] | None:
         """GET /leaderboard/{id} — song.hash + difficulty (value/name/status)."""
         return await self._get(f"/leaderboard/{leaderboard_id}")

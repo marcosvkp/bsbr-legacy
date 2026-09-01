@@ -86,22 +86,6 @@ def test_filters_casuals_and_impossible_scores():
     assert result.confidence == "none"
 
 
-def test_min_player_pp_none_accepts_global_scores():
-    """A chamada padrão filtra player_pp=0; min_player_pp=None aceita os
-    scores globais (o payload do ScoreSaber não entrega PP confiável)."""
-    scores = make_scores(45, 0.95, player_pp=0)
-
-    filtered = analyze_difficulty(scores, current_stars=5.0)
-    assert filtered.sample_size == 0
-    assert filtered.confidence == "none"
-
-    accepted = analyze_difficulty(scores, current_stars=5.0, min_player_pp=None)
-    assert accepted.sample_size == 45
-    assert accepted.confidence == "medium"  # 45 >= MEDIUM_MIN=40
-    # -(0.95 - 0.905) * 100 * 0.25 = -1.125 → round 2 casas
-    assert accepted.delta_stars == pytest.approx(-1.12)
-
-
 def test_weighted_acc_privileges_top_ranks():
     scores = [{"acc": 0.99, "base_score": 1, "full_combo": True, "player_pp": 3000}] * 10
     scores += [{"acc": 0.80, "base_score": 1, "full_combo": False, "player_pp": 3000}] * 30

@@ -162,7 +162,7 @@ def test_weekly_batch_reports_manual_and_auto_applies(tmp_path, monkeypatch):
     async def _no_sync(*args, **kwargs):
         return []
 
-    async def _no_collect(session, *, batch_id=None, use_global=False):
+    async def _no_collect(session, *, batch_id=None):
         # Simula o auto-apply do batch: RatingHistory ligada ao batch atual
         session.add(
             RatingHistory(
@@ -173,18 +173,7 @@ def test_weekly_batch_reports_manual_and_auto_applies(tmp_path, monkeypatch):
                 batch_id=batch_id,
             )
         )
-        return {
-            "evaluated": 1,
-            "pending": 0,
-            "auto_applied": 1,
-            "global_scores_fetched": 0,
-            "global_difficulties_used": 0,
-            "br_fallbacks": 0,
-            "remap_difficulties_used": 0,
-            "remap_scores_fetched": 0,
-            "remap_candidates_found": 0,
-            "remap_donors_used": 0,
-        }
+        return {"evaluated": 1, "pending": 0, "auto_applied": 1}
 
     class _Ranking:
         players_updated = 0

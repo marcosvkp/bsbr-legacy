@@ -34,34 +34,7 @@ const BATCH_LABELS: Record<string, string> = {
   players_updated: "Jogadores atualizados",
   snapshot_players: "Snapshots gravados",
   ratings_changed: "Mudanças de rating",
-  reweight_global_scores_fetched: "Scores globais buscados",
-  reweight_global_difficulties_used: "Dificuldades (global)",
-  reweight_br_fallbacks: "Fallbacks BR",
-  reweight_remap_difficulties_used: "Dificuldades (remap)",
-  reweight_remap_scores_fetched: "Scores de doadores",
-  reweight_remap_candidates_found: "Candidatos na faixa",
-  reweight_remap_donors_used: "Doadores usados",
 };
-
-/** Label da origem da amostra do reweight (fila + prévia). */
-function sourceLabel(source: string | null): string {
-  if (source === "scoresaber_global") return "ScoreSaber global";
-  if (source === "br_local") return "BR local";
-  if (source === "remap") return "Remap (faixa)";
-  return "legado";
-}
-
-function SourceBadge({ source }: { source: string | null }) {
-  const variant =
-    source === "scoresaber_global"
-      ? "success"
-      : source === "remap"
-        ? "warning"
-        : source === "br_local"
-          ? "secondary"
-          : "default";
-  return <Badge variant={variant}>{sourceLabel(source)}</Badge>;
-}
 
 function pct(value: number | null): string {
   if (value === null || !Number.isFinite(value)) return "—";
@@ -156,10 +129,7 @@ function AdminDashboard() {
     try {
       const stats = await postJson<Record<string, number>>("/admin/reweight/collect", {
         auto_apply: false,
-      }, {
-        headers: { "X-Admin-Token": token },
-        timeoutMs: 90_000, // coleta faz rede (global/remap); > 10s default
-      });
+      }, { headers: { "X-Admin-Token": token } });
       setCollectStats(stats);
       await loadSuggestions(token);
     } catch (cause) {
@@ -179,7 +149,6 @@ function AdminDashboard() {
     try {
       const data = await postJson<ReweightPreviewResponse>("/admin/reweight/preview", {}, {
         headers: { "X-Admin-Token": token },
-        timeoutMs: 90_000, // preview faz rede (global/remap); > 10s default
       });
       setPreviewData(data);
     } catch (cause) {
@@ -676,7 +645,6 @@ function AdminDashboard() {
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-semibold">{suggestion.map_name ?? `Diff #${suggestion.difficulty_id}`}</span>
                         <Badge>{suggestion.difficulty}</Badge>
-                        <SourceBadge source={suggestion.sample_source ?? null} />
                         <span className="text-sm tabular-nums">
                           <span className="text-muted">{formatNumber(suggestion.current_stars)}</span>
                           {" → "}
@@ -751,7 +719,6 @@ function AdminDashboard() {
                           <th className="py-2 pr-3 text-right font-bold">Sugerido</th>
                           <th className="py-2 pr-3 text-right font-bold">Δ</th>
                           <th className="py-2 pr-3 text-center font-bold">Conf</th>
-                          <th className="py-2 pr-3 font-bold">Fonte</th>
                           <th className="py-2 pr-3 text-center font-bold">Auto</th>
                         </tr>
                       </thead>
@@ -768,9 +735,6 @@ function AdminDashboard() {
                               {d.delta_stars > 0 ? "+" : ""}{formatNumber(d.delta_stars)}
                             </td>
                             <td className="py-2 pr-3 text-center text-xs">{d.confidence}</td>
-                            <td className="py-2 pr-3">
-                              <SourceBadge source={d.sample_source ?? null} />
-                            </td>
                             <td className="py-2 pr-3 text-center">
                               {d.auto_appliable ? <Badge variant="success">sim</Badge> : <span className="text-muted/40">—</span>}
                             </td>

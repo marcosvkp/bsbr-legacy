@@ -364,7 +364,6 @@ async def list_suggestions(
                 "suggested_stars": s.suggested_stars,
                 "confidence": s.confidence,
                 "reason": s.reason,
-                "sample_source": s.sample_source,
             }
             for s, d in rows
         ],
@@ -381,7 +380,7 @@ async def run_collect(
     _: None = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    stats = await collect_suggestions(db, auto_apply=req.auto_apply, use_global=True)
+    stats = await collect_suggestions(db, auto_apply=req.auto_apply)
     await cache.invalidate_prefix("rankings:")
     await cache.invalidate_prefix("map:")
     await cache.invalidate_prefix("player:")
@@ -394,7 +393,7 @@ async def run_preview(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Simulação em memória do reweight (impacto no ranking) — não persiste."""
-    return await preview_suggestions(db, use_global=True)
+    return await preview_suggestions(db)
 
 
 @router.post("/reweight/{suggestion_id}/apply")

@@ -10,9 +10,6 @@
 from __future__ import annotations
 
 import asyncio
-import statistics
-from dataclasses import dataclass
-from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,8 +27,6 @@ from app.models import (
 )
 from app.services.reweight import (
     AUTO_APPLY_MAX,
-    MIN_PLAYER_PP,
-    MIN_SCORES,
     ReweightResult,
     analyze_difficulty,
 )
@@ -40,30 +35,6 @@ _SYSTEM_REVIEWER = "system"
 
 # Cache da predição do ML por mapa (evita re-baixar o beatmap no processo).
 _ML_CACHE: dict[str, dict[str, float]] = {}
-
-# ── Amostra global e remap por faixa de estrelas ─────────────────────────
-# Janela superior da amostra global: só os top-100 por rank entram na mediana
-# não ponderada (proteção estatística; o payload do SS não traz PP confiável).
-GLOBAL_SAMPLE_LIMIT = 100
-# Alvo de consistência do pool remap: 50+ → medium, 100+ → high (auto-aplica).
-REMAP_TARGET = 50
-REMAP_BAND = 0.5  # faixa de estrelas em torno da dificuldade alvo
-REMAP_MAX_DONORS = 15  # teto de candidatos consultados
-REMAP_MIN_DONORS = 3  # mínimo de doadores aceitos para o remap contar
-REMAP_SIGMA = 2.0  # filtro de coerência de acc (desvios da mediana da faixa)
-REMAP_POOL_CAP = 150  # teto de scores no pool remap
-
-
-@dataclass(frozen=True)
-class ReweightSample:
-    """Amostra de performance observada + diagnóstico da fonte."""
-
-    scores: list[dict]
-    source: str  # "scoresaber_global" | "br_local" | "remap"
-    global_scores_fetched: int = 0
-    remap_scores_fetched: int = 0
-    remap_candidates_found: int = 0
-    remap_donors_used: int = 0
 
 
 async def _ml_stars_by_difficulty(map_source: str | None) -> dict[str, float] | None:
@@ -91,8 +62,6 @@ async def analyze_difficulty_with_ml(
     difficulty: Difficulty,
     map_: Map,
     scores: list[dict],
-    *,
-    min_player_pp: float | None = MIN_PLAYER_PP,
 ) -> ReweightResult:
     """Análise de reweight combinando o ML (stars do beatmap) com a performance.
 
@@ -100,10 +69,8 @@ async def analyze_difficulty_with_ml(
     a performance observada (acc mediana vs esperada) dá ``delta_perf``. O
     delta final é a média dos dois — "o ML acha que o mapa vale X★" aliado a
     "os scores estão rendendo acima/abaixo do esperado".
-
-    ``min_player_pp=None`` desliga o filtro por PP (amostra global/remap).
     """
-    base = analyze_difficulty(scores, float(difficulty.total_stars), min_player_pp=min_player_pp)
+    base = analyze_difficulty(scores, float(difficulty.total_stars))
     if base.confidence == "none":
         return base
 
@@ -171,213 +138,10 @@ async def _difficulty_scores(session: AsyncSession, difficulty_id: int) -> list[
     ]
 
 
-async def _global_difficulty_scores(
-    client: Any, difficulty: Difficulty
-) -> tuple[list[dict], int, bool]:
-    """Scores globais do leaderboard (janela top-100 por rank, sem PP filter).
-
-    Devolve ``(scores válidos no formato analyze, qtd bruta, transport_ok)``.
-    Retorna vazio SEM erro quando faltam ``ss_leaderboard_id``/``max_score``
-    (fallback silencioso); falha de transporte marca ``transport_ok=False``.
-    """
-    from app.services.sync import parse_leaderboard_score
-
-    if not difficulty.ss_leaderboard_id:
-        return [], 0, True
-    max_score = difficulty.max_score
-    if max_score is None:
-        info = await client.leaderboard_info_by_id(difficulty.ss_leaderboard_id)
-        max_score = (info or {}).get("maxScore")
-        if not max_score:
-            return [], 0, True
-    result = await client.leaderboard_scores_by_id_with_status(
-        difficulty.ss_leaderboard_id, country=None, max_pages=10
-    )
-    if not result.transport_ok:
-        return [], result.pages_fetched, False
-    valid: list[dict] = []
-    for raw in result.scores:
-        item = parse_leaderboard_score(raw, max_score)
-        if item is None:
-            continue
-        valid.append(
-            {
-                "acc": item["acc"] or 0.0,
-                "base_score": int(raw.get("baseScore") or 0),
-                "full_combo": item["full_combo"],
-                "player_pp": 0.0,  # payload do SS não traz pp confiável
-                "rank": item["leaderboard_rank"],
-            }
-        )
-    valid.sort(key=lambda s: s["rank"] if s["rank"] is not None else 10**9)
-    return valid[:GLOBAL_SAMPLE_LIMIT], result.pages_fetched, True
-
-
-def _coherent_donor_scores(
-    donor_scores: list[tuple[float, list[dict]]], *, sigma: float
-) -> list[list[dict]]:
-    """Mantém doadores com mediana de acc dentro de σ desvios da mediana da faixa.
-
-    Duas passadas (mediana + desvio recomputados após o corte): descarta
-    doadores mal calibrados — exatamente os que o reweight quer corrigir —
-    para não contaminar o pool.
-    """
-    medians = [m for m, _ in donor_scores]
-    if len(medians) < REMAP_MIN_DONORS:
-        return []
-
-    def _pass(ms: list[float]) -> list[int]:
-        med = statistics.median(ms)
-        sd = statistics.pstdev(ms)
-        if sd == 0:
-            sd = 1e-9
-        return [i for i, m in enumerate(medians) if abs(m - med) <= sigma * sd]
-
-    kept_idx = _pass(medians)
-    if len(kept_idx) < REMAP_MIN_DONORS:
-        return []
-    kept_idx = _pass([medians[i] for i in kept_idx])
-    return [donor_scores[i][1] for i in kept_idx]
-
-
-async def _remap_band_sample(
-    client: Any, difficulty: Difficulty, *, min_stars: float, max_stars: float
-) -> tuple[list[dict], int, int, int]:
-    """Pool de scores de doadores da faixa (coerência de acc aplicada).
-
-    Devolve ``(pool no formato analyze, candidatos vistos, doadores aceitos,
-    páginas buscadas)``. Falha de busca/filtro → pool vazio (remap indisponível).
-    """
-    from app.services.sync import parse_leaderboard_score
-
-    try:
-        candidates = await client.ranked_leaderboards_by_star_band(min_stars, max_stars)
-    except Exception:
-        return [], 0, 0, 0
-    self_hash = difficulty.map.hash if difficulty.map else None
-    candidates = [
-        c
-        for c in candidates
-        if (c.get("map") or {}).get("hash") != self_hash
-        and str(c.get("id") or "") != str(difficulty.ss_leaderboard_id or "")
-    ]
-    candidates_seen = len(candidates)
-    donor_scores: list[tuple[float, list[dict]]] = []
-    scores_fetched = 0
-    for cand in candidates[:REMAP_MAX_DONORS]:
-        try:
-            result = await client.leaderboard_scores_by_id_with_status(
-                cand["id"], country=None, max_pages=1
-            )
-        except Exception:
-            continue
-        scores_fetched += result.pages_fetched
-        if not result.transport_ok:
-            continue
-        donor: list[dict] = []
-        accs: list[float] = []
-        for raw in result.scores:
-            item = parse_leaderboard_score(raw, cand.get("maxScore"))
-            if item is None or not item["acc"]:
-                continue
-            accs.append(item["acc"])
-            donor.append(
-                {
-                    "acc": item["acc"],
-                    "base_score": int(raw.get("baseScore") or 0),
-                    "full_combo": item["full_combo"],
-                    "player_pp": 0.0,
-                    "rank": item["leaderboard_rank"],
-                }
-            )
-        if len(donor) < MIN_SCORES:
-            continue
-        donor_scores.append((statistics.median(accs), donor))
-
-    kept = _coherent_donor_scores(donor_scores, sigma=REMAP_SIGMA)
-    if not kept:
-        return [], candidates_seen, 0, scores_fetched
-    pool: list[dict] = []
-    for donor in kept:
-        pool.extend(donor)
-    pool.sort(key=lambda s: s["rank"] if s["rank"] is not None else 10**9)
-    return pool[:REMAP_POOL_CAP], candidates_seen, len(kept), scores_fetched
-
-
-async def _select_reweight_sample(
-    session: AsyncSession,
-    difficulty: Difficulty,
-    *,
-    use_global: bool,
-    score_client: Any,
-) -> ReweightSample:
-    """Seleciona a fonte da amostra: global → BR local → remap.
-
-    ``use_global=False`` (testes/sem cliente externo) → só BR local, mantendo
-    o comportamento atual. Em modo rede, a amostra é suplementada com o remap
-    por faixa até o alvo de consistência (``REMAP_TARGET=50``).
-    """
-    from app.services.reweight import curve
-
-    # Garante a curva empírica expected-acc no processo atual (cheap: carrega
-    # de star_reference uma vez e cacheia). Sem isso o batch/API nunca veria
-    # o dataset coletado pelo CLI.
-    await curve.load_curve(session)
-    if not use_global or score_client is None:
-        return ReweightSample(
-            scores=await _difficulty_scores(session, difficulty.id), source="br_local"
-        )
-
-    band_min = float(difficulty.total_stars) - REMAP_BAND
-    band_max = float(difficulty.total_stars) + REMAP_BAND
-    global_scores, fetched, transport_ok = await _global_difficulty_scores(score_client, difficulty)
-
-    if transport_ok and len(global_scores) >= MIN_SCORES:
-        if len(global_scores) >= REMAP_TARGET:
-            return ReweightSample(
-                scores=global_scores,
-                source="scoresaber_global",
-                global_scores_fetched=fetched,
-            )
-        pool, cand, donors, remap_fetched = await _remap_band_sample(
-            score_client, difficulty, min_stars=band_min, max_stars=band_max
-        )
-        if pool:
-            return ReweightSample(
-                scores=(global_scores + pool)[:REMAP_POOL_CAP],
-                source="remap",
-                global_scores_fetched=fetched,
-                remap_scores_fetched=remap_fetched,
-                remap_candidates_found=cand,
-                remap_donors_used=donors,
-            )
-        return ReweightSample(scores=global_scores, source="scoresaber_global", global_scores_fetched=fetched)
-
-    # Global insuficiente/falhou → BR local, com suplemento remap se fraco.
-    local = await _difficulty_scores(session, difficulty.id)
-    if len(local) >= REMAP_TARGET:
-        return ReweightSample(scores=local, source="br_local", global_scores_fetched=fetched)
-    pool, cand, donors, remap_fetched = await _remap_band_sample(
-        score_client, difficulty, min_stars=band_min, max_stars=band_max
-    )
-    if pool:
-        return ReweightSample(
-            scores=(local + pool)[:REMAP_POOL_CAP],
-            source="remap",
-            global_scores_fetched=fetched,
-            remap_scores_fetched=remap_fetched,
-            remap_candidates_found=cand,
-            remap_donors_used=donors,
-        )
-    return ReweightSample(scores=local, source="br_local", global_scores_fetched=fetched)
-
-
 async def _upsert_suggestion(
     session: AsyncSession,
     difficulty: Difficulty,
     result: ReweightResult,
-    *,
-    sample_source: str = "br_local",
 ) -> ReweightSuggestion:
     existing = (
         await session.scalars(
@@ -399,9 +163,6 @@ async def _upsert_suggestion(
     existing.confidence = result.confidence
     existing.suggested_stars = result.suggested_stars
     existing.reason = result.reason[:256]
-    # Fonte sempre atualizada: uma sugestão pendente reaproveitada não pode
-    # carregar a fonte obsoleta da coleta anterior.
-    existing.sample_source = sample_source
     return existing
 
 
@@ -442,23 +203,8 @@ async def collect_suggestions(
     *,
     batch_id: int | None = None,
     auto_apply: bool = True,
-    use_global: bool = False,
-    score_client: Any | None = None,
 ) -> dict[str, int]:
-    """Avalia todas as dificuldades rankeadas. Retorna contadores.
-
-    ``use_global=True`` liga a coleta global (leaderboard do ScoreSaber) com
-    suplemento/fallback remap por faixa de estrelas; sem cliente externo, o
-    serviço cria um ``ScoreSaberClient`` próprio (fechado ao final). Scores
-    globais/doadores NUNCA são gravados em ``scores``/``players``.
-    """
-    own_client = None
-    if use_global and score_client is None:
-        from app.integrations.scoresaber import ScoreSaberClient
-
-        own_client = ScoreSaberClient()
-        score_client = own_client
-
+    """Avalia todas as dificuldades rankeadas. Retorna contadores."""
     difficulties = (
         (
             await session.execute(
@@ -474,56 +220,23 @@ async def collect_suggestions(
         .all()
     )
 
-    stats = {
-        "evaluated": 0,
-        "pending": 0,
-        "auto_applied": 0,
-        "global_scores_fetched": 0,
-        "global_difficulties_used": 0,
-        "br_fallbacks": 0,
-        "remap_difficulties_used": 0,
-        "remap_scores_fetched": 0,
-        "remap_candidates_found": 0,
-        "remap_donors_used": 0,
-    }
-    try:
-        for difficulty in difficulties:
-            sample = await _select_reweight_sample(
-                session, difficulty, use_global=use_global, score_client=score_client
+    stats = {"evaluated": 0, "pending": 0, "auto_applied": 0}
+    for difficulty in difficulties:
+        scores = await _difficulty_scores(session, difficulty.id)
+        result = await analyze_difficulty_with_ml(difficulty, difficulty.map, scores)
+        if result.confidence == "none":
+            continue
+        stats["evaluated"] += 1
+        suggestion = await _upsert_suggestion(session, difficulty, result)
+        if auto_apply and result.can_auto_apply:
+            await _apply_to_difficulty(
+                session, difficulty, result, reviewed_by=_SYSTEM_REVIEWER, batch_id=batch_id
             )
-            min_player_pp = None if sample.source in ("scoresaber_global", "remap") else MIN_PLAYER_PP
-            result = await analyze_difficulty_with_ml(
-                difficulty, difficulty.map, sample.scores, min_player_pp=min_player_pp
-            )
-            if result.confidence == "none":
-                continue
-            stats["evaluated"] += 1
-            if sample.source == "scoresaber_global":
-                stats["global_difficulties_used"] += 1
-                stats["global_scores_fetched"] += sample.global_scores_fetched
-            elif sample.source == "remap":
-                stats["remap_difficulties_used"] += 1
-                stats["global_scores_fetched"] += sample.global_scores_fetched
-                stats["remap_scores_fetched"] += sample.remap_scores_fetched
-                stats["remap_candidates_found"] += sample.remap_candidates_found
-                stats["remap_donors_used"] += sample.remap_donors_used
-            elif use_global and score_client is not None:
-                stats["br_fallbacks"] += 1
-            suggestion = await _upsert_suggestion(
-                session, difficulty, result, sample_source=sample.source
-            )
-            if auto_apply and result.can_auto_apply:
-                await _apply_to_difficulty(
-                    session, difficulty, result, reviewed_by=_SYSTEM_REVIEWER, batch_id=batch_id
-                )
-                suggestion.status = SuggestionStatus.APPLIED
-                suggestion.reviewed_by = _SYSTEM_REVIEWER
-                stats["auto_applied"] += 1
-            else:
-                stats["pending"] += 1
-    finally:
-        if own_client is not None:
-            await own_client.close()
+            suggestion.status = SuggestionStatus.APPLIED
+            suggestion.reviewed_by = _SYSTEM_REVIEWER
+            stats["auto_applied"] += 1
+        else:
+            stats["pending"] += 1
     await session.commit()
     return stats
 
@@ -574,28 +287,14 @@ async def reject_suggestion(
     return suggestion
 
 
-async def preview_suggestions(
-    session: AsyncSession,
-    *,
-    use_global: bool = False,
-    score_client: Any | None = None,
-) -> dict:
+async def preview_suggestions(session: AsyncSession) -> dict:
     """Simulação do reweight em memória — não persiste nada.
 
     Roda a análise para todas as dificuldades rankeadas, aplica os deltas
     sugeridos e recalcula o ranking ponderado como ficaria. A curva de PP é
     linear em stars, então o novo PP de cada score = pp_atual × (novas/atuais).
-    Scores globais/doadores entram apenas na estimativa do delta — o ranking
-    simulado continua sobre os scores BR persistidos.
     """
     from app.services.pp_engine import weighted_pp
-
-    own_client = None
-    if use_global and score_client is None:
-        from app.integrations.scoresaber import ScoreSaberClient
-
-        own_client = ScoreSaberClient()
-        score_client = own_client
 
     difficulties = (
         (
@@ -613,28 +312,18 @@ async def preview_suggestions(
     )
 
     changes: dict[int, dict] = {}  # difficulty_id -> {old, new, result, map_name, diff_name}
-    try:
-        for difficulty in difficulties:
-            sample = await _select_reweight_sample(
-                session, difficulty, use_global=use_global, score_client=score_client
-            )
-            min_player_pp = None if sample.source in ("scoresaber_global", "remap") else MIN_PLAYER_PP
-            result = await analyze_difficulty_with_ml(
-                difficulty, difficulty.map, sample.scores, min_player_pp=min_player_pp
-            )
-            if result.confidence == "none":
-                continue
-            changes[difficulty.id] = {
-                "old": float(difficulty.total_stars),
-                "new": result.suggested_stars,
-                "result": result,
-                "map_name": difficulty.map.name,
-                "diff_name": difficulty.name,
-                "source": sample.source,
-            }
-    finally:
-        if own_client is not None:
-            await own_client.close()
+    for difficulty in difficulties:
+        scores = await _difficulty_scores(session, difficulty.id)
+        result = await analyze_difficulty_with_ml(difficulty, difficulty.map, scores)
+        if result.confidence == "none":
+            continue
+        changes[difficulty.id] = {
+            "old": float(difficulty.total_stars),
+            "new": result.suggested_stars,
+            "result": result,
+            "map_name": difficulty.map.name,
+            "diff_name": difficulty.name,
+        }
 
     # Novo PP por jogador: agregação ponderada (0.965^n) sobre os scores
     # escalados pelo fator de cada dificuldade alterada.
@@ -708,7 +397,6 @@ async def preview_suggestions(
                 "observed_acc": ch["result"].median_acc,
                 "expected_acc": ch["result"].expected_acc,
                 "auto_appliable": ch["result"].can_auto_apply,
-                "sample_source": ch["source"],
             }
             for did, ch in changes.items()
         ],

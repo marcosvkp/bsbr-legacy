@@ -28,7 +28,6 @@ from app.models.rating_history import RatingHistory  # noqa: E402
 from app.models.reweight_suggestion import ReweightSuggestion  # noqa: E402
 from app.models.score import Score  # noqa: E402
 from app.models.staff_user import StaffUser  # noqa: E402
-from app.models.star_reference import StarReference  # noqa: E402
 
 __all__ = [
     "Base",
@@ -45,7 +44,6 @@ __all__ = [
     "ReweightSuggestion",
     "Score",
     "StaffUser",
-    "StarReference",
     "SuggestionStatus",
     "WebhookConfig",
 ]

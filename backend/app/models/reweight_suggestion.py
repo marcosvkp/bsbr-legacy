@@ -27,9 +27,6 @@ class ReweightSuggestion(Base):
     status: Mapped[SuggestionStatus] = mapped_column(
         enum_column(SuggestionStatus), nullable=False, default=SuggestionStatus.PENDING, index=True
     )
-    # Origem da performance observada: "scoresaber_global" | "br_local" |
-    # "remap" (pool por faixa de estrelas). Nulo = legado/anterior ao campo.
-    sample_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
     reviewed_by: Mapped[str | None] = mapped_column(String(64))  # discord_id do staff
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
