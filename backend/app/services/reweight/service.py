@@ -317,6 +317,12 @@ async def _select_reweight_sample(
     o comportamento atual. Em modo rede, a amostra é suplementada com o remap
     por faixa até o alvo de consistência (``REMAP_TARGET=50``).
     """
+    from app.services.reweight import curve
+
+    # Garante a curva empírica expected-acc no processo atual (cheap: carrega
+    # de star_reference uma vez e cacheia). Sem isso o batch/API nunca veria
+    # o dataset coletado pelo CLI.
+    await curve.load_curve(session)
     if not use_global or score_client is None:
         return ReweightSample(
             scores=await _difficulty_scores(session, difficulty.id), source="br_local"

@@ -35,6 +35,16 @@ SS_SOURCE = "scoresaber"
 BL_SOURCE = "beatleader"
 MIN_SAMPLE = 5  # amostra mínima de acc por leaderboard para gravar median_top_acc
 
+# O /api/v2/leaderboards do SS não traz o nome da dificuldade, só o código
+# numérico (difficulty.difficulty). Mapa padrão do ScoreSaber.
+_SS_DIFFICULTY_NAMES = {
+    1: "Easy",
+    3: "Normal",
+    5: "Hard",
+    7: "Expert",
+    9: "ExpertPlus",
+}
+
 
 def eprint(*args) -> None:
     print(*args, file=sys.stderr)
@@ -66,6 +76,7 @@ async def _upsert_list(session, rows: list[StarReference]) -> None:
         cur.stars = row.stars
         cur.hash = row.hash
         cur.song_name = row.song_name
+        cur.difficulty_name = row.difficulty_name
         cur.total_scores = row.total_scores
         cur.max_score = row.max_score
     await session.commit()
@@ -102,12 +113,14 @@ async def collect_scoresaber(session, client: ScoreSaberClient, args) -> list[di
         for lb in data:
             realm = lb.get("realm") or {}
             map_ = lb.get("map") or {}
+            diff_code = (lb.get("difficulty") or {}).get("difficulty")
             rows.append(
                 StarReference(
                     source=SS_SOURCE,
                     leaderboard_id=str(lb.get("id") or ""),
                     hash=map_.get("hash"),
                     song_name=map_.get("songName"),
+                    difficulty_name=_SS_DIFFICULTY_NAMES.get(diff_code),
                     stars=float(realm.get("stars") or 0),
                     total_scores=lb.get("totalScores"),
                     max_score=lb.get("maxScore"),
@@ -178,6 +191,8 @@ async def collect_beatleader(session, client: BeatLeaderClient, args) -> None:
             stars = diff.get("stars")
             if stars is None:
                 continue
+            # total_scores fica NULL no BL: nem a listagem nem o endpoint de
+            # scores expõem a contagem (plays/attempts/totalScores vêm None).
             rows.append(
                 StarReference(
                     source=BL_SOURCE,
