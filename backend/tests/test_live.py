@@ -221,6 +221,9 @@ async def test_persist_live_score_inserts_and_updates(session):
     outcome = await persist_live_score(session, live)
     assert "inserted" in outcome
     assert outcome["inserted"] is not None
+    # identidade do jogador para o recalc ao vivo
+    assert outcome["player_id"] is not None
+    assert outcome["ss_id"] == "p1"
 
     # player criado automaticamente com o country do payload
     player = (await session.scalars(select(Player).where(Player.ss_id == "p1"))).first()

@@ -48,27 +48,76 @@ async def recompute_all_rankings(session: AsyncSession) -> RankingSummary:
             continue
         by_player.setdefault(player_id, []).append(score)
 
-    ranked: list[tuple[float, int, float, float, float]] = []  # (pp_total, player_id, acc, tech, speed)
     for player_id, scores in by_player.items():
-        scores.sort(key=lambda s: s.pp or 0.0, reverse=True)
-        total = weighted_pp([s.pp for s in scores])
-        acc = weighted_pp([s.pp_acc or 0.0 for s in scores])
-        tech = weighted_pp([s.pp_tech or 0.0 for s in scores])
-        speed = weighted_pp([s.pp_speed or 0.0 for s in scores])
-        for player in await _players(session, [player_id]):
-            player.pp_total = round(total, 4)
-            player.pp_acc = round(acc, 4)
-            player.pp_tech = round(tech, 4)
-            player.pp_speed = round(speed, 4)
-        ranked.append((total, player_id, acc, tech, speed))
+        await _apply_aggregates(session, player_id, scores)
 
-    ranked.sort(reverse=True)
-    for position, (total, player_id, *_rest) in enumerate(ranked, start=1):
-        for player in await _players(session, [player_id]):
-            player.rank = position
+    updated = await assign_ranks(session)
+    return RankingSummary(players_updated=updated, week=iso_week())
 
+
+async def recompute_player(session: AsyncSession, player_id: int) -> None:
+    """Recalcula PP agregado e rank de UM jogador (score ao vivo).
+
+    Usado pelo ingest ao vivo (bus.publish): o score recém-persistido já tem o
+    PP calculado na ingestão; aqui só re-agregamos esse jogador e re-atribuímos
+    os ranks (passada global barata sobre pp_total, consistente entre todos).
+    """
+    rows = (
+        await session.execute(
+            select(Score)
+            .join(Difficulty, Score.difficulty_id == Difficulty.id)
+            .join(Map, Difficulty.map_id == Map.id)
+            .where(
+                Score.player_id == player_id,
+                Map.status == MapStatus.RANKED,
+                Difficulty.is_ranked.is_(True),
+            )
+        )
+    ).scalars().all()
+    scores = [s for s in rows if s.pp is not None]
+
+    if scores:
+        await _apply_aggregates(session, player_id, scores)
+    else:
+        player = await session.get(Player, player_id)
+        if player is not None:
+            # Sem scores rankeados: volta ao estado inicial (rank sai do assign_ranks).
+            player.pp_total = 0.0
+            player.pp_acc = 0.0
+            player.pp_tech = 0.0
+            player.pp_speed = 0.0
+
+    await assign_ranks(session)
+
+
+async def _apply_aggregates(session: AsyncSession, player_id: int, scores: list[Score]) -> None:
+    """Aplica weighted_pp (ordem pp desc, mesmo critério do ranking) no Player."""
+    scores.sort(key=lambda s: s.pp or 0.0, reverse=True)
+    total = weighted_pp([s.pp for s in scores])
+    acc = weighted_pp([s.pp_acc or 0.0 for s in scores])
+    tech = weighted_pp([s.pp_tech or 0.0 for s in scores])
+    speed = weighted_pp([s.pp_speed or 0.0 for s in scores])
+    for player in await _players(session, [player_id]):
+        player.pp_total = round(total, 4)
+        player.pp_acc = round(acc, 4)
+        player.pp_tech = round(tech, 4)
+        player.pp_speed = round(speed, 4)
+
+
+async def assign_ranks(session: AsyncSession) -> int:
+    """Re-atribui rank 1..N aos players com pp_total > 0, por pp_total desc."""
+    players = (
+        (
+            await session.scalars(
+                select(Player).where(Player.pp_total > 0).order_by(Player.pp_total.desc())
+            )
+        )
+        .all()
+    )
+    for position, player in enumerate(players, start=1):
+        player.rank = position
     await session.commit()
-    return RankingSummary(players_updated=len(ranked), week=iso_week())
+    return len(players)
 
 
 async def _players(session: AsyncSession, ids: list[int]) -> list[Player]:

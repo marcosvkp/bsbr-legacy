@@ -13,6 +13,7 @@ from app.services.ranking import (
     medal_from_rank,
     medals_for_player,
     recompute_all_rankings,
+    recompute_player,
     write_weekly_snapshot,
 )
 
@@ -119,3 +120,36 @@ async def test_medals_sum_per_map(session):
     medals = await medals_for_player(session, p1)
     assert medals["total"] == 10  # melhor posição por mapa: apenas o 1º lugar conta
     assert medals["best_rank"] == 1
+
+
+async def test_recompute_player_updates_only_that_player(session):
+    p1, p2 = await seed(session)  # p1: 100+50 → 148.25; p2: 80
+    await recompute_all_rankings(session)  # estado base: ambos com pp/rank
+
+    # Novo score chega (ingest ao vivo) — só p1 é recalculado, p2 intacto.
+    d_id = (await session.scalars(select(Difficulty))).first().id
+    session.add(
+        Score(
+            player_id=p1,
+            difficulty_id=d_id,
+            score=950000,
+            acc=0.95,
+            pp=60.0,
+            pp_acc=12.0,
+            pp_tech=36.0,
+            pp_speed=12.0,
+            leaderboard_rank=1,
+            time_set=datetime(2026, 8, 21, 10, 0, tzinfo=timezone.utc).replace(tzinfo=None),
+        )
+    )
+    await session.commit()
+
+    await recompute_player(session, p1)
+
+    top = await session.get(Player, p1)
+    mid = await session.get(Player, p2)
+    # ordenado desc: 100 + 60×0.965 + 50×0.965²
+    assert top.pp_total == pytest.approx(100 + 60 * 0.965 + 50 * 0.965**2)
+    assert top.rank == 1
+    assert mid.pp_total == pytest.approx(80.0)  # intocado
+    assert mid.rank == 2  # rank re-atribuído globalmente, consistente

@@ -1,4 +1,4 @@
-"""GET /players/{ss_id} e /players/{ss_id}/scores."""
+"""GET /players/{ss_id}, /players/{ss_id}/scores e /players/{ss_id}/pp-history."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.cache import cache
 from app.core.db import get_db
 from app.models import Difficulty, Map, MapStatus, Player, RankSnapshot, Score
+from app.services.pp_history import MAX_DAYS, MIN_DAYS, build_pp_history
 from app.services.ranking import medals_for_player
 
 router = APIRouter()
@@ -65,6 +66,24 @@ async def get_player(ss_id: str, db: AsyncSession = Depends(get_db)) -> dict:
             for s in reversed(snapshots)  # cronológico para gráficos
         ],
     }
+    await cache.set_json(cache_key, payload, ttl=60)
+    return payload
+
+
+@router.get("/players/{ss_id}/pp-history")
+async def get_player_pp_history(
+    ss_id: str,
+    days: int = Query(180, ge=MIN_DAYS, le=MAX_DAYS),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Progressão de PP do jogador por timestamp dos scores (janela 7..180 dias)."""
+    cache_key = f"player:pp-history:{ss_id}:{days}"
+    cached = await cache.get_json(cache_key)
+    if cached is not None:
+        return cached
+
+    player = await _get_player(db, ss_id)
+    payload = await build_pp_history(db, player, days=days)
     await cache.set_json(cache_key, payload, ttl=60)
     return payload
 

@@ -91,6 +91,24 @@ async def test_health(client):
     assert body["status"] == "ok" and body["database"] == "ok"
 
 
+async def test_player_pp_history_endpoint(client, seeded):
+    r = client.get("/api/v1/players/ss1/pp-history?days=180")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ss_id"] == "ss1"
+    assert body["days"] == 180
+    assert body["current_pp_total"] is not None
+    assert body["points"]
+    for pt in body["points"]:
+        assert "ts" in pt and "pp_total" in pt and "estimated" in pt
+
+    # janela fora do limite → 422 (validação do Query)
+    assert client.get("/api/v1/players/ss1/pp-history?days=5").status_code == 422
+    assert client.get("/api/v1/players/ss1/pp-history?days=999").status_code == 422
+    # jogador inexistente → 404
+    assert client.get("/api/v1/players/nao-existe/pp-history?days=30").status_code == 404
+
+
 async def test_calc_matches_legacy_curve(client):
     r = client.post("/api/v1/calc", json={"stars": 8.5, "accuracy": 97.88})
     assert r.status_code == 200

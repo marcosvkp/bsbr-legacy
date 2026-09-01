@@ -36,10 +36,20 @@ def _get_redis():
 
 
 async def publish(live: LiveScore) -> None:
-    """Persiste + registra nos recents + notifica o canal."""
+    """Persiste + recalcula o jogador + registra nos recents + notifica o canal."""
     try:
         async with SessionLocal() as session:
             outcome = await persist_live_score(session, live)
+            # Score persistido: recalcula PP/rank do jogador na hora para o
+            # perfil atualizar sem esperar o sync_br_daily (rede de segurança
+            # de recálculo total permanece no sync).
+            if isinstance(outcome, dict) and not outcome.get("ignored"):
+                try:
+                    from app.services.ranking import recompute_player
+
+                    await recompute_player(session, outcome["player_id"])
+                except Exception:
+                    logger.exception("falha ao recalcular jogador no score ao vivo")
     except Exception:
         logger.exception("falha ao persistir score ao vivo")
         outcome = {"error": "persist_failed"}
@@ -47,6 +57,16 @@ async def publish(live: LiveScore) -> None:
     # Score fora do catálogo ranqueado: não vai para o feed nem para os recents
     if isinstance(outcome, dict) and outcome.get("ignored"):
         return
+
+    # Invalida o perfil e o ranking em cache para refletir o recálculo
+    if isinstance(outcome, dict) and outcome.get("ss_id"):
+        try:
+            from app.core.cache import cache
+
+            await cache.invalidate(f"player:{outcome['ss_id']}")
+            await cache.invalidate_prefix("rankings:")
+        except Exception:
+            logger.exception("falha ao invalidar cache do jogador")
 
     redis = _get_redis()
     if redis is None:
