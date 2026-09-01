@@ -131,6 +131,25 @@ export interface PlayerScoresResponse {
   items: PlayerScore[];
 }
 
+/** Ponto da série de progressão de PP (timestamp dos scores). */
+export interface PpHistoryPoint {
+  ts: string;
+  pp_total: number | null;
+  pp_acc: number | null;
+  pp_tech: number | null;
+  pp_speed: number | null;
+  /** true = amostra interpolada em gap sem dados (tracejado no gráfico). */
+  estimated: boolean;
+}
+
+export interface PpHistoryResponse {
+  ss_id: string;
+  days: number;
+  now: string;
+  current_pp_total: number | null;
+  points: PpHistoryPoint[];
+}
+
 // ---------------------------------------------------------------------------
 // Mapas
 // ---------------------------------------------------------------------------

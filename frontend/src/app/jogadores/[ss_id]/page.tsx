@@ -4,13 +4,14 @@ import { ApiError, getJson } from "@/lib/api";
 import {
   type PlayerDetail,
   type PlayerScoresResponse,
+  type PpHistoryResponse,
   type RankingsResponse,
   RANKING_COUNTRY,
   weightedAt,
 } from "@/lib/types";
 import { formatAcc, formatInt, formatPp } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { BackendOffline, EmptyState } from "@/components/empty-state";
 import { PlayerAvatar } from "@/components/player-avatar";
 import { SubStats } from "@/components/sub-stats";
@@ -18,6 +19,7 @@ import { buildHref } from "@/components/pagination";
 import { SmartImg } from "@/components/smart-img";
 import { RadarChart } from "./radar-chart";
 import { EvolutionChart } from "./evolution-chart";
+import { PpHistoryChart } from "./pp-history-chart";
 import { Calculator } from "./calculator";
 
 export async function generateMetadata(
@@ -50,6 +52,7 @@ interface ProfileData {
   leaders: Record<string, number | null>;
   gainPps: number[];
   scores: PlayerScoresResponse | null;
+  ppHistory: PpHistoryResponse | null;
 }
 
 async function loadProfile(ssId: string, scoresPage: number): Promise<
@@ -57,13 +60,14 @@ async function loadProfile(ssId: string, scoresPage: number): Promise<
   | { ok: false; status: number | null }
 > {
   try {
-    const [player, leadersAcc, leadersTech, leadersSpeed, gainScores, scores] = await Promise.all([
+    const [player, leadersAcc, leadersTech, leadersSpeed, gainScores, scores, ppHistory] = await Promise.all([
       getJson<PlayerDetail>(`/players/${encodeURIComponent(ssId)}`),
       getJson<RankingsResponse>(`/rankings?component=acc&page=1&page_size=1&country=${RANKING_COUNTRY}`).catch(() => null),
       getJson<RankingsResponse>(`/rankings?component=tech&page=1&page_size=1&country=${RANKING_COUNTRY}`).catch(() => null),
       getJson<RankingsResponse>(`/rankings?component=speed&page=1&page_size=1&country=${RANKING_COUNTRY}`).catch(() => null),
       getJson<PlayerScoresResponse>(`/players/${encodeURIComponent(ssId)}/scores?page=1&page_size=50`).catch(() => null),
       getJson<PlayerScoresResponse>(`/players/${encodeURIComponent(ssId)}/scores?page=${scoresPage}&page_size=${TABLE_PAGE_SIZE}`).catch(() => null),
+      getJson<PpHistoryResponse>(`/players/${encodeURIComponent(ssId)}/pp-history?days=180`).catch(() => null),
     ]);
 
     const leaders: Record<string, number | null> = {
@@ -75,7 +79,7 @@ async function loadProfile(ssId: string, scoresPage: number): Promise<
       .map((score) => score.pp)
       .filter((pp): pp is number => pp !== null);
 
-    return { ok: true, data: { player, leaders, gainPps, scores } };
+    return { ok: true, data: { player, leaders, gainPps, scores, ppHistory } };
   } catch (cause) {
     return { ok: false, status: cause instanceof ApiError ? cause.status : null };
   }
@@ -112,7 +116,7 @@ export default async function PlayerPage(props: PageProps<"/jogadores/[ss_id]">)
     return <BackendOffline what="o perfil do jogador" />;
   }
 
-  const { player, leaders, gainPps, scores } = result.data;
+  const { player, leaders, gainPps, scores, ppHistory } = result.data;
 
   const radarPlayer: Record<string, number | null> = {
     acc: player.pp_acc,
@@ -192,6 +196,19 @@ export default async function PlayerPage(props: PageProps<"/jogadores/[ss_id]">)
           </CardContent>
         </Card>
       </div>
+
+      {/* Progressão de PP (timestamp dos scores) */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Progressão de PP</CardTitle>
+          <CardDescription>
+            PP ponderado por timestamp dos scores; tracejado = estimado.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <PpHistoryChart ssId={ssId} initial={ppHistory} />
+        </CardContent>
+      </Card>
 
       {/* Scores */}
       <Card>
