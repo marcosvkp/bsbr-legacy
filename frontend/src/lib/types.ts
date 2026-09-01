@@ -267,6 +267,8 @@ export interface ReweightSuggestion {
   suggested_stars: number | null;
   confidence: number | null;
   reason: string;
+  /** Origem da amostra: "scoresaber_global" | "br_local" | "remap" | null (legado). */
+  sample_source: string | null;
 }
 
 export interface ReweightPreviewDifficulty {
@@ -281,6 +283,7 @@ export interface ReweightPreviewDifficulty {
   observed_acc: number | null;
   expected_acc: number | null;
   auto_appliable: boolean;
+  sample_source: string | null;
 }
 
 export interface ReweightPreviewRankingRow {
