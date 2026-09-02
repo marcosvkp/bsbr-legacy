@@ -221,6 +221,10 @@ async def qualify_map(
     m = await db.get(Map, map_id)
     if m is None:
         raise HTTPException(status_code=404, detail="mapa não encontrado")
+    if m.status == MapStatus.QUALIFIED:
+        # Idempotente: re-análise de mapa já enfileirado não precisa re-encaminhar.
+        await cache.invalidate_prefix("maps:")
+        return {"id": m.id, "hash": m.hash, "status": m.status.value}
     if m.status != MapStatus.CANDIDATE:
         raise HTTPException(status_code=422, detail=f"status atual: {m.status.value}")
 
@@ -528,15 +532,25 @@ async def approve_map_suggestion(
     _: None = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Aprova a sugestão: cria um Map candidate SEM ML (metadata já salva)."""
+    """Aprova a sugestão: cria um Map candidate SEM ML (metadata já salva).
+
+    Se o mapa já existe (mesmo hash — ex.: candidato, na fila ou rankeado),
+    vincula a sugestão ao mapa existente em vez de duplicar (`linked: true`).
+    """
     suggestion = await db.get(MapSuggestion, suggestion_id)
     if suggestion is None:
         raise HTTPException(status_code=404, detail="sugestão não encontrada")
     if suggestion.status != MapSuggestionStatus.PENDING:
         raise HTTPException(status_code=422, detail="sugestão já revisada")
-    exists = await db.scalar(select(Map.id).where(Map.hash == suggestion.hash).limit(1))
-    if exists is not None:
-        raise HTTPException(status_code=409, detail="já existe um mapa com esse hash")
+
+    existing = await db.scalar(select(Map).where(Map.hash == suggestion.hash).limit(1))
+    if existing is not None:
+        suggestion.status = MapSuggestionStatus.APPROVED
+        suggestion.reviewed_at = datetime.now(timezone.utc)
+        suggestion.reviewed_by = "admin"
+        await db.commit()
+        await cache.invalidate_prefix("maps:")
+        return {"id": suggestion.id, "status": "approved", "map_id": existing.id, "linked": True}
 
     created = await create_map_from_suggestion(db, suggestion)
     suggestion.status = MapSuggestionStatus.APPROVED

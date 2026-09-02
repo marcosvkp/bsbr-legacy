@@ -356,8 +356,10 @@ async def test_admin_candidates_and_qualify_flow(client, seeded):
     assert q.status_code == 200
     assert q.json()["status"] == "qualified"
 
-    # repetir deve dar 422 (não é mais candidato)
-    assert client.post(f"/api/v1/admin/maps/{cand_id}/qualify", headers=headers).status_code == 422
+    # repetir é idempotente: já enfileirado retorna 200 com o status atual
+    again = client.post(f"/api/v1/admin/maps/{cand_id}/qualify", headers=headers)
+    assert again.status_code == 200
+    assert again.json()["status"] == "qualified"
 
     # approve sem ss_leaderboard_id -> 422 (dificuldade sem leaderboard)
     a = client.post(

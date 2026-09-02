@@ -286,6 +286,7 @@ async def test_admin_approve_duplicate(client, monkeypatch):
 
 
 async def test_admin_approve_conflict_with_existing_map(client, monkeypatch):
+    """Mapa já existe: aprova a sugestão vinculando ao existente (não 409)."""
     import app.api.v1.endpoints.suggestions as ep
 
     client.cookies.set("bsbr_user_session", cookie_value(STEAM_ID))
@@ -300,7 +301,18 @@ async def test_admin_approve_conflict_with_existing_map(client, monkeypatch):
         await s.commit()
 
     r = client.post(f"/api/v1/admin/suggestions/{sid}/approve", headers=_admin_headers())
-    assert r.status_code == 409
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "approved"
+    assert body["linked"] is True
+    assert body["map_id"] is not None
+
+    # não duplicou o mapa e liberou o slot da sugestão
+    async with SessionLocal() as s:
+        maps = (await s.scalars(select(Map))).all()
+        assert len(maps) == 1
+        sug = await s.get(MapSuggestion, sid)
+        assert sug.status == MapSuggestionStatus.APPROVED
 
 
 async def test_admin_reject(client, monkeypatch):
