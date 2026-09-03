@@ -44,8 +44,6 @@ from app.services.reweight.service import (
 )
 from app.services.suggestions import create_map_from_suggestion
 
-from .oauth import admin_session_ok
-
 def _escape_like(value: str) -> str:
     """Escapa curingas do LIKE para busca literal (%, _, \\)."""
     return value.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
@@ -65,13 +63,13 @@ async def _staff_by_steam(db: AsyncSession, bsbr_user_session: str | None) -> St
 async def current_staff(
     x_admin_token: str | None = Header(default=None),
     bsbr_user_session: str | None = Cookie(default=None),
-    bsbr_admin_session: str | None = Cookie(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> StaffUser:
-    """Identidade do admin: sessão Steam (staff), OAuth Discord ou token de fallback.
+    """Identidade do admin: sessão Steam (staff) ou X-Admin-Token de emergência.
 
     Distingue 401 (sem sessão válida) de 403 (logado mas não é staff) para o
     gate do frontend saber entre "Entrar com Steam" e "acesso restrito".
+    Sem OAuth Discord por enquanto.
     """
     # 1. Sessão Steam validada contra staff_users (fonte primária de identidade,
     #    preserva role owner/staff real da tabela)
@@ -91,10 +89,6 @@ async def current_staff(
     # 3. Sessão Steam válida mas o jogador não faz parte da equipe
     if ss_id is not None:
         raise HTTPException(status_code=403, detail="acesso restrito à equipe do BSBR")
-
-    # 4. Sessão OAuth Discord (legado/opcional)
-    if admin_session_ok(bsbr_admin_session):
-        return StaffUser(ss_id="discord-admin", role="staff", name="Discord admin")
 
     # Token informado porém errado → tentativa de acesso negada (403).
     if x_admin_token:
