@@ -311,7 +311,8 @@ export interface ReweightPreviewRankingRow {
   delta_pp: number;
 }
 
-export interface ReweightPreviewResponse {
+/** Preview completo em memória do reweight (POST /admin/reweight/preview). */
+export interface ReweightBatchPreviewResponse {
   difficulties: ReweightPreviewDifficulty[];
   ranking: ReweightPreviewRankingRow[];
 }
@@ -346,6 +347,8 @@ export interface ReweightAnalyzeDifficulty {
   sample_size: number | null;
   observed_acc: number | null;
   expected_acc: number | null;
+  /** Δ já enfileirado (origin manual, PENDING) para o próximo batch — null se não está na fila. */
+  queued_delta: number | null;
 }
 
 export interface ReweightAnalyzeResponse {
@@ -360,6 +363,60 @@ export interface ApplyDeltaResponse {
   new_stars: number;
   scores_updated: number;
   players_affected: number;
+}
+
+/** Método de combinação ML/perf no catálogo de reweight (ml | perf | mix). */
+export type ReweightMethod = "ml" | "perf" | "mix";
+
+/** Retorno de POST /admin/reweight/enqueue. */
+export interface ReweightEnqueueResponse {
+  id: number;
+  difficulty_id: number;
+  delta_stars: number | null;
+  suggested_stars: number | null;
+  status: string;
+  reason: string | null;
+}
+
+/** Preview de UMA dificuldade (POST /admin/reweight/preview-difficulty). */
+export interface ReweightPreviewResponse {
+  difficulty_id: number;
+  method: string;
+  current_stars: number | null;
+  delta_ml: number | null;
+  perf_delta: number | null;
+  delta_base: number | null;
+  stars_base: number | null;
+  confidence: string;
+  sample_size: number | null;
+  seed: number | null;
+  noise_sigma?: number;
+  stars_p5?: number;
+  stars_p50?: number;
+  stars_p95?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Admin — gate por sessão Steam + equipe (staff)
+// ---------------------------------------------------------------------------
+
+/** Membro da equipe (staff_users). */
+export interface StaffMember {
+  id: number;
+  ss_id: string;
+  name: string | null;
+  role: string;
+}
+
+/** Identidade do admin logado (GET /admin/me). */
+export interface AdminMeResponse {
+  ss_id: string;
+  name: string | null;
+  role: string;
+}
+
+export interface AdminStaffResponse {
+  items: StaffMember[];
 }
 
 export interface SuggestionActionResponse {

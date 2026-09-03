@@ -32,7 +32,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 /** Revisão de sugestões de mapas da comunidade — cards paginados. */
-export function SuggestionsSection({ token }: { token: string | null }) {
+export function SuggestionsSection() {
   const searchParams = useSearchParams();
   const page = Math.max(1, Number.parseInt(searchParams.get("page") ?? "1", 10) || 1);
 
@@ -41,23 +41,18 @@ export function SuggestionsSection({ token }: { token: string | null }) {
   const [error, setError] = useState<string | null>(null);
   const [actingId, setActingId] = useState<number | null>(null);
 
-  const load = useCallback(async (activeToken: string, targetPage: number) => {
+  const load = useCallback(async (targetPage: number) => {
     setLoading(true);
     setError(null);
     try {
       const res = await getJson<AdminSuggestionsResponse>(
         `/admin/suggestions?limit=${PAGE_SIZE}&offset=${(targetPage - 1) * PAGE_SIZE}`,
-        { headers: { "X-Admin-Token": activeToken } },
       );
       setData(res);
     } catch (cause) {
       setData(null);
       setError(
-        cause instanceof ApiError && cause.status === 403
-          ? "Token inválido (403)."
-          : cause instanceof ApiError
-            ? cause.message
-            : "Falha de rede ao carregar sugestões.",
+        cause instanceof ApiError ? cause.message : "Falha de rede ao carregar sugestões.",
       );
     } finally {
       setLoading(false);
@@ -65,52 +60,40 @@ export function SuggestionsSection({ token }: { token: string | null }) {
   }, []);
 
   useEffect(() => {
-    if (token) void load(token, page);
-  }, [token, page, load]);
+    void load(page);
+  }, [page, load]);
 
   const act = useCallback(
     async (id: number, action: "approve" | "reject") => {
-      if (!token) return;
       setActingId(id);
       setError(null);
       try {
         await postJson<MapSuggestionActionResponse>(
           `/admin/suggestions/${id}/${action}`,
           {},
-          { headers: { "X-Admin-Token": token } },
         );
-        await load(token, page);
+        await load(page);
       } catch (cause) {
         setError(
-          cause instanceof ApiError && cause.status === 403
-            ? "Token inválido (403)."
-            : cause instanceof ApiError
-              ? cause.message
-              : "Falha de rede na ação.",
+          cause instanceof ApiError ? cause.message : "Falha de rede na ação.",
         );
       } finally {
         setActingId(null);
       }
     },
-    [token, page, load],
+    [page, load],
   );
 
   return (
     <Card>
       <CardHeader className="flex-row items-center justify-between">
         <CardTitle>Sugestões de mapas da comunidade</CardTitle>
-        {token ? (
-          <Button variant="ghost" size="sm" onClick={() => load(token, page)}>
-            Recarregar
-          </Button>
-        ) : null}
+        <Button variant="ghost" size="sm" onClick={() => load(page)}>
+          Recarregar
+        </Button>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        {!token ? (
-          <p className="py-4 text-sm text-muted">
-            Informe o X-Admin-Token acima para revisar as sugestões.
-          </p>
-        ) : loading && !data ? (
+        {loading && !data ? (
           <div className="flex items-center justify-center gap-3 py-8 text-muted">
             <Spinner size={20} />
             <span className="text-sm">Carregando sugestões…</span>

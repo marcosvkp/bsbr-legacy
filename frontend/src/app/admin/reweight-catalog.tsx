@@ -1,11 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getJson, postJson } from "@/lib/api";
+import { ApiError, deleteJson, getJson, postJson } from "@/lib/api";
 import type {
   AdminRankedMap,
-  ApplyDeltaResponse,
+  ReweightAnalyzeDifficulty,
   ReweightAnalyzeResponse,
+  ReweightEnqueueResponse,
+  ReweightMethod,
+  ReweightPreviewResponse,
 } from "@/lib/types";
 import { formatNumber } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
@@ -14,18 +17,45 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SmartImg } from "@/components/smart-img";
 import { Spinner } from "@/components/ui/spinner";
 
-interface Props {
-  token: string;
+const PAGE_SIZE = 12;
+
+const METHOD_OPTIONS: Array<{ value: ReweightMethod; label: string }> = [
+  { value: "ml", label: "Só ML" },
+  { value: "perf", label: "Só perf" },
+  { value: "mix", label: "50-50" },
+];
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 
-const PAGE_SIZE = 12;
+/** Delta combinado do método — mesma regra do backend `_delta_by_method`. */
+function deltaByMethod(
+  d: ReweightAnalyzeDifficulty,
+  method: ReweightMethod,
+): number | null {
+  const ml = d.delta_ml;
+  const perf = d.perf_delta;
+  if (method === "ml") return ml;
+  if (method === "perf") return perf;
+  if (ml !== null && perf !== null) return round2(0.5 * ml + 0.5 * perf);
+  return ml ?? perf;
+}
+
+/** "+0,40★" / "-0,10★" / "—". */
+function signedStars(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  const prefix = value > 0 ? "+" : "";
+  return `${prefix}${formatNumber(value)}★`;
+}
 
 /**
  * Reweight por mapa: catálogo paginado de TODOS os mapas rankeados com busca.
- * Ao clicar em "Simular", analisa aquele mapa (ML + performance) e permite
- * escolher direção (subir/descer) e delta antes de aplicar.
+ * Ao clicar em "Simular", analisa o mapa (ML + performance) e permite escolher
+ * o peso do método (só ML / só perf / 50-50), conferir o preview com ruído
+ * seedado e ENFILEIRAR o ajuste para o próximo batch semanal.
  */
-export function ReweightCatalog({ token }: Props) {
+export function ReweightCatalog() {
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
   const [maps, setMaps] = useState<AdminRankedMap[]>([]);
@@ -39,30 +69,34 @@ export function ReweightCatalog({ token }: Props) {
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   const [data, setData] = useState<ReweightAnalyzeResponse | null>(null);
-  const [deltaOverrides, setDeltaOverrides] = useState<Record<number, number>>({});
-  const [directions, setDirections] = useState<Record<number, string>>({});
-  const [applying, setApplying] = useState<number | null>(null);
-  const [applyResult, setApplyResult] = useState<ApplyDeltaResponse | null>(null);
 
-  const load = useCallback(
-    async (q: string, pg: number) => {
-      setLoading(true);
-      setListError(null);
-      try {
-        const res = await getJson<{ items: AdminRankedMap[]; total?: number }>(
-          `/admin/maps/ranked?q=${encodeURIComponent(q)}&limit=${PAGE_SIZE}&offset=${pg * PAGE_SIZE}`,
-          { headers: { "X-Admin-Token": token } },
-        );
-        setMaps(res.items ?? []);
-        setTotal(res.total ?? 0);
-      } catch {
-        setListError("Falha ao carregar mapas.");
-      } finally {
-        setLoading(false);
-      }
-    },
-    [token],
-  );
+  // Método escolhido por dificuldade (default "mix")
+  const [methods, setMethods] = useState<Record<number, ReweightMethod>>({});
+  // Preview com ruído seedado por dificuldade
+  const [seeds, setSeeds] = useState<Record<number, string>>({});
+  const [previews, setPreviews] = useState<Record<number, ReweightPreviewResponse | null>>({});
+  const [previewing, setPreviewing] = useState<Record<number, boolean>>({});
+
+  // Ações de fila
+  const [actingId, setActingId] = useState<number | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
+
+  const load = useCallback(async (q: string, pg: number) => {
+    setLoading(true);
+    setListError(null);
+    try {
+      const res = await getJson<{ items: AdminRankedMap[]; total?: number }>(
+        `/admin/maps/ranked?q=${encodeURIComponent(q)}&limit=${PAGE_SIZE}&offset=${pg * PAGE_SIZE}`,
+      );
+      setMaps(res.items ?? []);
+      setTotal(res.total ?? 0);
+    } catch {
+      setListError("Falha ao carregar mapas.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   // Busca com debounce (reseta página)
   useEffect(() => {
@@ -81,60 +115,110 @@ export function ReweightCatalog({ token }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
 
-  const openMap = useCallback(
-    async (map: AdminRankedMap) => {
-      setSelected(map);
-      setAnalyzing(true);
-      setAnalyzeError(null);
+  /** Busca a análise do mapa (reflete a fila manual atual no queued_delta). */
+  const fetchAnalysis = useCallback(async (mapId: number) => {
+    setAnalyzing(true);
+    setAnalyzeError(null);
+    try {
+      const res = await postJson<ReweightAnalyzeResponse>("/admin/reweight/analyze", {
+        map_id: mapId,
+      });
+      setData(res);
+    } catch (cause) {
       setData(null);
-      setApplyResult(null);
-      setDeltaOverrides({});
-      setDirections({});
-      try {
-        const res = await postJson<ReweightAnalyzeResponse>(
-          "/admin/reweight/analyze",
-          { map_id: map.id },
-          { headers: { "X-Admin-Token": token } },
-        );
-        setData(res);
-        const overrides: Record<number, number> = {};
-        const dirs: Record<number, string> = {};
-        for (const d of res.difficulties) {
-          overrides[d.difficulty_id] = d.suggested_delta ?? 0;
-          dirs[d.difficulty_id] = d.direction;
-        }
-        setDeltaOverrides(overrides);
-        setDirections(dirs);
-      } catch {
-        setAnalyzeError("Falha ao analisar o mapa.");
-      } finally {
-        setAnalyzing(false);
-      }
+      setAnalyzeError(cause instanceof ApiError ? cause.message : "Falha ao analisar o mapa.");
+    } finally {
+      setAnalyzing(false);
+    }
+  }, []);
+
+  const openMap = useCallback(
+    (map: AdminRankedMap) => {
+      setSelected(map);
+      setData(null);
+      setMethods({});
+      setSeeds({});
+      setPreviews({});
+      setActionError(null);
+      setActionNotice(null);
+      void fetchAnalysis(map.id);
     },
-    [token],
+    [fetchAnalysis],
   );
 
-  const applyDelta = useCallback(
-    async (diffId: number) => {
-      setApplying(diffId);
-      setApplyResult(null);
+  const enqueue = useCallback(
+    async (d: ReweightAnalyzeDifficulty) => {
+      const method = methods[d.difficulty_id] ?? "mix";
+      setActingId(d.difficulty_id);
+      setActionError(null);
+      setActionNotice(null);
       try {
-        const res = await postJson<ApplyDeltaResponse>(
-          "/admin/reweight/apply-delta",
-          { difficulty_id: diffId, delta_stars: deltaOverrides[diffId] ?? 0 },
-          { headers: { "X-Admin-Token": token } },
+        await postJson<ReweightEnqueueResponse>("/admin/reweight/enqueue", {
+          difficulty_id: d.difficulty_id,
+          method,
+        });
+        setActionNotice(
+          `Dificuldade ${d.name} enfileirada (método ${
+            method === "mix" ? "50-50" : method === "ml" ? "só ML" : "só perf"
+          }) — entra no próximo batch semanal.`,
         );
-        setApplyResult(res);
-        // Reanalisa para refletir as novas estrelas
-        if (selected) void openMap(selected);
-      } catch {
-        setApplyResult(null);
-        setAnalyzeError("Falha ao aplicar.");
+        if (selected) void fetchAnalysis(selected.id);
+      } catch (cause) {
+        setActionError(cause instanceof ApiError ? cause.message : "Falha ao enfileirar.");
       } finally {
-        setApplying(null);
+        setActingId(null);
       }
     },
-    [deltaOverrides, token, selected, openMap],
+    [methods, selected, fetchAnalysis],
+  );
+
+  const removeFromQueue = useCallback(
+    async (d: ReweightAnalyzeDifficulty) => {
+      setActingId(d.difficulty_id);
+      setActionError(null);
+      setActionNotice(null);
+      try {
+        await deleteJson(`/admin/reweight/enqueue/${d.difficulty_id}`);
+        setActionNotice(`Dificuldade ${d.name} removida da fila manual.`);
+        if (selected) void fetchAnalysis(selected.id);
+      } catch (cause) {
+        setActionError(cause instanceof ApiError ? cause.message : "Falha ao remover da fila.");
+      } finally {
+        setActingId(null);
+      }
+    },
+    [selected, fetchAnalysis],
+  );
+
+  const runPreview = useCallback(
+    async (d: ReweightAnalyzeDifficulty) => {
+      const raw = (seeds[d.difficulty_id] ?? "").trim();
+      const seed = Number.parseInt(raw, 10);
+      if (!raw || !Number.isFinite(seed)) {
+        setActionError("Informe um seed numérico inteiro para o preview com ruído.");
+        return;
+      }
+      const method = methods[d.difficulty_id] ?? "mix";
+      setPreviewing((prev) => ({ ...prev, [d.difficulty_id]: true }));
+      setActionError(null);
+      try {
+        const res = await postJson<ReweightPreviewResponse>(
+          "/admin/reweight/preview-difficulty",
+          {
+            difficulty_id: d.difficulty_id,
+            method,
+            seed,
+            noise_sigma: 0.47,
+          },
+        );
+        setPreviews((prev) => ({ ...prev, [d.difficulty_id]: res }));
+      } catch (cause) {
+        setActionError(cause instanceof ApiError ? cause.message : "Falha ao gerar o preview.");
+      } finally {
+        setPreviewing((prev) => ({ ...prev, [d.difficulty_id]: false }));
+      }
+    },
+    [methods, seeds],
   );
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -242,8 +326,18 @@ export function ReweightCatalog({ token }: Props) {
             <Badge variant="secondary">#{selected.id}</Badge>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
-            {analyzeError ? <p className="text-sm text-danger">{analyzeError}</p> : null}
-            {analyzing ? (
+            {actionError ? (
+              <p role="alert" className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
+                {actionError}
+              </p>
+            ) : null}
+            {actionNotice ? (
+              <p role="status" className="rounded-md border border-success/30 bg-success/10 px-3 py-2 text-sm">
+                {actionNotice}
+              </p>
+            ) : null}
+            {analyzeError ? <p role="alert" className="text-sm text-danger">{analyzeError}</p> : null}
+            {analyzing && !data ? (
               <div className="flex items-center gap-3 py-6 text-muted">
                 <Spinner size={16} /> Analisando com o ML + performance…
               </div>
@@ -252,11 +346,16 @@ export function ReweightCatalog({ token }: Props) {
             ) : (
               data?.difficulties.map((d) => {
                 if (!d.is_ranked) return null;
-                const delta = deltaOverrides[d.difficulty_id] ?? 0;
+                const method = methods[d.difficulty_id] ?? "mix";
+                const delta = deltaByMethod(d, method);
+                const queued = d.queued_delta;
+                const preview = previews[d.difficulty_id] ?? null;
+                const busy = actingId === d.difficulty_id;
+                const previewBusy = previewing[d.difficulty_id] ?? false;
                 return (
                   <div key={d.difficulty_id} className="rounded-lg border border-border-subtle bg-surface p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <Badge>{d.name}</Badge>
                         <span className="text-xs text-muted">
                           atual:{" "}
@@ -268,6 +367,9 @@ export function ReweightCatalog({ token }: Props) {
                           <span className="text-xs text-muted">
                             amostra {d.sample_size} · conf {d.confidence}
                           </span>
+                        ) : null}
+                        {queued !== null ? (
+                          <Badge variant="success">na fila (Δ{signedStars(queued)})</Badge>
                         ) : null}
                       </div>
                     </div>
@@ -282,8 +384,7 @@ export function ReweightCatalog({ token }: Props) {
                         {d.delta_ml != null ? (
                           <span className={d.delta_ml >= 0 ? "text-success" : "text-danger"}>
                             {" "}
-                            ({d.delta_ml >= 0 ? "+" : ""}
-                            {formatNumber(d.delta_ml)})
+                            ({signedStars(d.delta_ml)})
                           </span>
                         ) : null}
                       </span>
@@ -292,13 +393,14 @@ export function ReweightCatalog({ token }: Props) {
                           acc observada{" "}
                           <b className="tabular-nums">{formatNumber(d.observed_acc * 100)}%</b>
                           {d.expected_acc != null ? (
-                            <span className="text-muted"> vs esperada {formatNumber(d.expected_acc * 100)}%</span>
+                            <span className="text-muted">
+                              {" "}vs esperada {formatNumber(d.expected_acc * 100)}%
+                            </span>
                           ) : null}
                           {d.perf_delta != null ? (
                             <span className={d.perf_delta >= 0 ? "text-success" : "text-danger"}>
                               {" "}
-                              ({d.perf_delta >= 0 ? "+" : ""}
-                              {formatNumber(d.perf_delta)}★)
+                              ({signedStars(d.perf_delta)})
                             </span>
                           ) : null}
                         </span>
@@ -310,120 +412,128 @@ export function ReweightCatalog({ token }: Props) {
                       ) : null}
                     </div>
 
-                    {/* Direção + delta + aplicar */}
+                    {/* Método (peso ML/perf) + delta resultante */}
                     <div className="mt-3 flex flex-wrap items-center gap-3">
                       <div className="flex items-center gap-1 rounded-md border border-border-subtle bg-background p-0.5">
-                        {(["auto", "increase", "decrease"] as const).map((dir) => {
-                          const labels: Record<string, string> = {
-                            auto: "Auto",
-                            increase: "⬆ Subir",
-                            decrease: "⬇ Descer",
-                          };
-                          return (
-                            <button
-                              key={dir}
-                              type="button"
-                              onClick={() => {
-                                setDirections((prev) => ({ ...prev, [d.difficulty_id]: dir }));
-                                if (dir === "increase") {
-                                  setDeltaOverrides((prev) => ({
-                                    ...prev,
-                                    [d.difficulty_id]: Math.max(0.05, prev[d.difficulty_id] ?? 0),
-                                  }));
-                                } else if (dir === "decrease") {
-                                  setDeltaOverrides((prev) => ({
-                                    ...prev,
-                                    [d.difficulty_id]: Math.min(-0.05, prev[d.difficulty_id] ?? 0),
-                                  }));
-                                } else {
-                                  setDeltaOverrides((prev) => ({
-                                    ...prev,
-                                    [d.difficulty_id]: d.suggested_delta ?? 0,
-                                  }));
-                                }
-                              }}
-                              className={`rounded px-2.5 py-1 text-xs font-semibold transition-colors ${
-                                (directions[d.difficulty_id] ?? "auto") === dir
-                                  ? "bg-accent/15 text-accent"
-                                  : "text-muted hover:text-foreground"
-                              }`}
-                            >
-                              {labels[dir]}
-                            </button>
-                          );
-                        })}
+                        {METHOD_OPTIONS.map((opt) => (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            aria-pressed={method === opt.value}
+                            onClick={() =>
+                              setMethods((prev) => ({ ...prev, [d.difficulty_id]: opt.value }))
+                            }
+                            className={`rounded px-2.5 py-1 text-xs font-semibold transition-colors ${
+                              method === opt.value
+                                ? "bg-accent/15 text-accent"
+                                : "text-muted hover:text-foreground"
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
                       </div>
+                      <span className="text-xs text-muted">
+                        Δ {signedStars(delta)}
+                        {delta !== null && d.current_stars != null ? (
+                          <>
+                            {" "}→{" "}
+                            <b className="tabular-nums text-foreground">
+                              {formatNumber(d.current_stars + delta)}★
+                            </b>
+                          </>
+                        ) : null}
+                        {delta === null ? (
+                          <span className="text-warning"> sem ML nem perf para estimar</span>
+                        ) : null}
+                      </span>
+                    </div>
 
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          aria-label="Diminuir delta"
-                          onClick={() =>
-                            setDeltaOverrides((prev) => ({
-                              ...prev,
-                              [d.difficulty_id]: Math.round(((prev[d.difficulty_id] ?? 0) - 0.1) * 100) / 100,
-                            }))
-                          }
-                          className="flex h-6 w-6 items-center justify-center rounded border border-border-subtle text-xs hover:bg-surface-2"
+                    {/* Enfileirar / remover da fila */}
+                    <div className="mt-3 flex flex-wrap items-center gap-3">
+                      {queued !== null ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => removeFromQueue(d)}
+                          disabled={actingId !== null}
+                          className="text-danger hover:text-danger"
                         >
-                          −
-                        </button>
+                          {busy ? <Spinner size={12} /> : null}
+                          Remover da fila
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          onClick={() => enqueue(d)}
+                          disabled={actingId !== null || delta === null}
+                          title={
+                            delta === null
+                              ? "Sem predição do ML nem amostra de performance para enfileirar."
+                              : undefined
+                          }
+                        >
+                          {busy ? <Spinner size={12} /> : null}
+                          Enfileirar
+                        </Button>
+                      )}
+                      <span className="text-xs text-muted">
+                        O reweight entra no próximo batch semanal.
+                      </span>
+                    </div>
+
+                    {/* Preview com ruído seedado */}
+                    <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md bg-background/60 px-2 py-1.5 text-xs">
+                      <label className="flex items-center gap-1.5 text-muted">
+                        seed
                         <input
-                          type="number"
-                          step="0.1"
-                          value={delta}
-                          onChange={(e) => {
-                            const v = parseFloat(e.target.value) || 0;
-                            setDeltaOverrides((prev) => ({
-                              ...prev,
-                              [d.difficulty_id]: Math.round(v * 100) / 100,
-                            }));
-                          }}
-                          className="w-16 rounded border border-border-subtle bg-background px-1.5 py-0.5 text-center text-xs tabular-nums outline-none focus:border-secondary"
-                          aria-label="Delta em estrelas"
-                        />
-                        <button
-                          type="button"
-                          aria-label="Aumentar delta"
-                          onClick={() =>
-                            setDeltaOverrides((prev) => ({
-                              ...prev,
-                              [d.difficulty_id]: Math.round(((prev[d.difficulty_id] ?? 0) + 0.1) * 100) / 100,
-                            }))
+                          type="text"
+                          inputMode="numeric"
+                          value={seeds[d.difficulty_id] ?? ""}
+                          onChange={(e) =>
+                            setSeeds((prev) => ({ ...prev, [d.difficulty_id]: e.target.value }))
                           }
-                          className="flex h-6 w-6 items-center justify-center rounded border border-border-subtle text-xs hover:bg-surface-2"
-                        >
-                          +
-                        </button>
-                        <span className="ml-1 text-xs text-muted">
-                          →{" "}
-                          <b className="tabular-nums">
-                            {d.current_stars != null ? formatNumber(d.current_stars + delta) : "—"}★
-                          </b>
-                        </span>
-                      </div>
-
+                          placeholder="42"
+                          aria-label={`Seed do preview de ${d.name}`}
+                          className="w-16 rounded border border-border-subtle bg-background px-1.5 py-0.5 text-center font-mono tabular-nums outline-none focus:border-secondary"
+                        />
+                      </label>
                       <Button
                         size="sm"
-                        onClick={() => applyDelta(d.difficulty_id)}
-                        disabled={applying !== null}
+                        variant="secondary"
+                        onClick={() => runPreview(d)}
+                        disabled={previewBusy}
                       >
-                        {applying === d.difficulty_id ? <Spinner size={12} /> : null}
-                        Aplicar
+                        {previewBusy ? <Spinner size={12} /> : null}
+                        Preview (ruído)
                       </Button>
+                      {preview ? (
+                        <span className="text-muted">
+                          delta base {signedStars(preview.delta_base)} →{" "}
+                          <b className="tabular-nums">{formatNumber(preview.stars_base)}★</b>
+                          {preview.stars_p5 != null && preview.stars_p95 != null ? (
+                            <>
+                              {" "}
+                              <span className="text-muted">
+                                · intervalo provável (seed {preview.seed}): ★{" "}
+                                {formatNumber(preview.stars_p5)} … {formatNumber(preview.stars_p95)}
+                                {preview.stars_p50 != null ? (
+                                  <span> · mediana {formatNumber(preview.stars_p50)}</span>
+                                ) : null}
+                              </span>
+                            </>
+                          ) : null}
+                        </span>
+                      ) : null}
                     </div>
                   </div>
                 );
               })
             )}
 
-            {applyResult ? (
-              <div className="rounded-md border border-success/30 bg-success/10 px-3 py-2 text-sm">
-                Aplicado: {applyResult.old_stars}★ → {formatNumber(applyResult.new_stars)}★ ·{" "}
-                {applyResult.scores_updated} scores recalculados ·{" "}
-                {applyResult.players_affected} jogadores re-agregados
-              </div>
-            ) : null}
+            <p className="text-xs text-muted">
+              As mudanças entram no próximo batch semanal — nada é aplicado em tempo real pelo catálogo.
+            </p>
           </CardContent>
         </Card>
       ) : null}
