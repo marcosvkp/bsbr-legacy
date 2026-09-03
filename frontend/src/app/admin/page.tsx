@@ -1,10 +1,10 @@
 "use client";
 
-import { Fragment, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ApiError, getJson, postJson } from "@/lib/api";
 import { AdminTabs, type AdminTab } from "./admin-tabs";
-import { ReweightAnalyze } from "./reweight-analyze";
+import { ReweightCatalog } from "./reweight-catalog";
 import { SuggestionsSection } from "./suggestions-section";
 import { WebhooksSection } from "./webhooks-section";
 import type {
@@ -14,9 +14,6 @@ import type {
   AdminRankedMap,
   BatchStats,
   QualifyPreviewResponse,
-  ReweightPreviewResponse,
-  ReweightSuggestion,
-  SuggestionsResponse,
 } from "@/lib/types";
 import { formatDateTime, formatInt, formatNumber } from "@/lib/format";
 import { SmartImg } from "@/components/smart-img";
@@ -47,21 +44,6 @@ function pct(value: number | null): string {
 function AdminDashboard() {
   const [tokenInput, setTokenInput] = useState("");
   const [token, setToken] = useState<string | null>(null);
-
-  const [suggestions, setSuggestions] = useState<ReweightSuggestion[] | null>(null);
-  const [listLoading, setListLoading] = useState(false);
-  const [listInvalid, setListInvalid] = useState(false);
-  const [listError, setListError] = useState<string | null>(null);
-
-  const [actingId, setActingId] = useState<number | null>(null);
-  const [deltaOverride, setDeltaOverride] = useState<Record<number, string>>({});
-
-  const [collectLoading, setCollectLoading] = useState(false);
-  const [collectError, setCollectError] = useState<string | null>(null);
-  const [collectStats, setCollectStats] = useState<Record<string, number> | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewError, setPreviewError] = useState<string | null>(null);
-  const [previewData, setPreviewData] = useState<ReweightPreviewResponse | null>(null);
 
   const [batches, setBatches] = useState<AdminBatchItem[] | null>(null);
   const [batchesError, setBatchesError] = useState<string | null>(null);
@@ -100,68 +82,6 @@ function AdminDashboard() {
 
   const tab = (useSearchParams().get("tab") ?? "qualification") as AdminTab;
 
-
-  const loadSuggestions = useCallback(async (activeToken: string) => {
-    setListLoading(true);
-    setListInvalid(false);
-    setListError(null);
-    try {
-      const data = await getJson<SuggestionsResponse>("/admin/reweight/suggestions", {
-        headers: { "X-Admin-Token": activeToken },
-      });
-      setSuggestions(data.items);
-    } catch (cause) {
-      setSuggestions(null);
-      if (cause instanceof ApiError && cause.status === 403) {
-        setListInvalid(true);
-      } else {
-        setListError(
-          cause instanceof ApiError ? cause.message : "Falha de rede ao carregar sugestões.",
-        );
-      }
-    } finally {
-      setListLoading(false);
-    }
-  }, []);
-
-  const runCollect = useCallback(async () => {
-    if (!token) return;
-    setCollectLoading(true);
-    setCollectError(null);
-    setCollectStats(null);
-    try {
-      const stats = await postJson<Record<string, number>>("/admin/reweight/collect", {
-        auto_apply: false,
-      }, { headers: { "X-Admin-Token": token } });
-      setCollectStats(stats);
-      await loadSuggestions(token);
-    } catch (cause) {
-      setCollectError(
-        cause instanceof ApiError ? cause.message : "Falha ao coletar sugestões.",
-      );
-    } finally {
-      setCollectLoading(false);
-    }
-  }, [token, loadSuggestions]);
-
-  const runPreview = useCallback(async () => {
-    if (!token) return;
-    setPreviewLoading(true);
-    setPreviewError(null);
-    setPreviewData(null);
-    try {
-      const data = await postJson<ReweightPreviewResponse>("/admin/reweight/preview", {}, {
-        headers: { "X-Admin-Token": token },
-      });
-      setPreviewData(data);
-    } catch (cause) {
-      setPreviewError(
-        cause instanceof ApiError ? cause.message : "Falha ao simular o reweight.",
-      );
-    } finally {
-      setPreviewLoading(false);
-    }
-  }, [token]);
 
   const loadBatches = useCallback(async (activeToken: string) => {
     setBatchesError(null);
@@ -245,7 +165,7 @@ function AdminDashboard() {
     }, 300);
   };
 
-  // Restaura token do sessionStorage e carrega a fila uma vez, fora do
+  // Restaura token do sessionStorage e carrega as abas uma vez, fora do
   // caminho síncrono do efeito (react-hooks/set-state-in-effect).
   useEffect(() => {
     const id = setTimeout(() => {
@@ -253,58 +173,26 @@ function AdminDashboard() {
       if (!stored) return;
       setTokenInput(stored);
       setToken(stored);
-      void loadSuggestions(stored);
       void loadBatches(stored);
       void loadCandidates(stored);
       void loadRankedMaps(stored);
     }, 0);
     return () => clearTimeout(id);
-  }, [loadSuggestions, loadBatches, loadCandidates]);
+  }, [loadBatches, loadCandidates, loadRankedMaps]);
 
   function saveToken(event: React.FormEvent) {
     event.preventDefault();
     const trimmed = tokenInput.trim();
     if (!trimmed) return;
     sessionStorage.setItem(TOKEN_KEY, trimmed);
-    setSuggestions(null);
     setBatches(null);
     setBatchStats(null);
     setBatchError(null);
     setBatchInvalid(false);
     setToken(trimmed);
-    void loadSuggestions(trimmed);
     void loadBatches(trimmed);
     void loadCandidates(trimmed);
     void loadRankedMaps(trimmed);
-  }
-
-  async function act(suggestion: ReweightSuggestion, action: "apply" | "reject") {
-    if (!token) return;
-    setActingId(suggestion.id);
-    try {
-      const body: Record<string, unknown> = {};
-      if (action === "apply") {
-        const override = deltaOverride[suggestion.id];
-        const parsed = override ? parseFloat(override) : NaN;
-        if (!Number.isNaN(parsed)) body.delta_override = parsed;
-      }
-      await postJson(`/admin/reweight/${suggestion.id}/${action}`, body, {
-        headers: { "X-Admin-Token": token },
-      });
-      await loadSuggestions(token);
-    } catch (cause) {
-      if (cause instanceof ApiError && cause.status === 403) {
-        setListInvalid(true);
-      } else {
-        setListError(
-          cause instanceof ApiError
-            ? `Falha ao ${action === "apply" ? "aplicar" : "rejeitar"}: ${cause.message}`
-            : "Falha de rede na ação.",
-        );
-      }
-    } finally {
-      setActingId(null);
-    }
   }
 
   async function runBatch() {
@@ -590,247 +478,8 @@ function AdminDashboard() {
       </Card>
 
       <div hidden={tab !== "reweight"} className="flex flex-col gap-6">
-      {/* Análise manual de reweight (mapa específico, direção e delta) */}
-      {token ? (
-        <ReweightAnalyze token={token} onApplied={() => loadSuggestions(token)} />
-      ) : null}
-
-      {/* Fila de reweight */}
-      <Card>
-        <CardHeader className="flex-row items-center justify-between">
-          <CardTitle>Sugestões de reweight (pendentes)</CardTitle>
-          {token ? (
-            <div className="flex items-center gap-2">
-              <Button variant="ghost" size="sm" onClick={runPreview} disabled={previewLoading}>
-                {previewLoading ? <Spinner size={14} /> : null}
-                Prévia (simular)
-              </Button>
-              <Button variant="ghost" size="sm" onClick={runCollect} disabled={collectLoading}>
-                {collectLoading ? <Spinner size={14} /> : null}
-                Coletar sugestões
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => loadSuggestions(token)}>
-                Recarregar
-              </Button>
-            </div>
-          ) : null}
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          {collectError ? (
-            <p role="alert" className="text-sm font-medium text-danger">{collectError}</p>
-          ) : null}
-          {collectStats ? (
-            <div className="flex flex-wrap gap-2 text-sm">
-              <Badge variant="secondary">{collectStats.evaluated ?? 0} avaliadas</Badge>
-              <Badge variant="warning">{collectStats.pending ?? 0} pendentes</Badge>
-              <Badge variant="success">{collectStats.auto_applied ?? 0} auto-aplicadas</Badge>
-            </div>
-          ) : null}
-          {!token ? (
-            <p className="py-4 text-sm text-muted">
-              Informe o X-Admin-Token acima para ver a fila.
-            </p>
-          ) : listLoading ? (
-            <div className="flex items-center justify-center gap-3 py-8 text-muted">
-              <Spinner size={20} />
-              <span className="text-sm">Carregando sugestões…</span>
-            </div>
-          ) : listInvalid ? (
-            <p role="alert" className="py-4 text-sm font-medium text-danger">
-              Token inválido (403). Confira o valor salvo e tente novamente.
-            </p>
-          ) : listError ? (
-            <p role="alert" className="py-4 text-sm text-danger">
-              {listError}
-            </p>
-          ) : suggestions && suggestions.length > 0 ? (
-            <ul className="flex flex-col divide-y divide-border-subtle/60">
-              {suggestions.map((suggestion) => {
-                const delta =
-                  suggestion.suggested_stars !== null && suggestion.current_stars !== null
-                    ? suggestion.suggested_stars - suggestion.current_stars
-                    : null;
-                return (
-                  <li
-                    key={suggestion.id}
-                    className="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0 last:pb-0"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold">{suggestion.map_name ?? `Diff #${suggestion.difficulty_id}`}</span>
-                        <Badge>{suggestion.difficulty}</Badge>
-                        <span className="text-sm tabular-nums">
-                          <span className="text-muted">{formatNumber(suggestion.current_stars)}</span>
-                          {" → "}
-                          <span className={delta !== null && delta > 0 ? "font-bold text-success" : delta !== null && delta < 0 ? "font-bold text-danger" : ""}>
-                            {formatNumber(suggestion.suggested_stars)}
-                          </span>
-                          {delta !== null && delta !== 0 ? (
-                            <span className={delta > 0 ? "ml-1 text-xs text-success" : "ml-1 text-xs text-danger"}>
-                              ({delta > 0 ? "+" : ""}
-                              {formatNumber(delta)})
-                            </span>
-                          ) : null}
-                        </span>
-                      </div>
-                      <p className="mt-1 truncate text-xs text-muted" title={suggestion.reason}>
-                        {suggestion.reason}
-                      </p>
-                      <p className="mt-0.5 text-[11px] text-muted/70 tabular-nums">
-                        amostra {formatInt(suggestion.sample_size)} · confiança {pct(suggestion.confidence)} · acc observada {pct(suggestion.observed_acc)} vs esperada {pct(suggestion.expected_acc)}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={deltaOverride[suggestion.id] ?? ""}
-                        onChange={(e) =>
-                          setDeltaOverride((prev) => ({
-                            ...prev,
-                            [suggestion.id]: e.target.value,
-                          }))
-                        }
-                        placeholder={(
-                          (suggestion.suggested_stars ?? 0) - (suggestion.current_stars ?? 0)
-                        ).toFixed(2)}
-                        className="w-14 rounded border border-border-subtle bg-background px-1 py-0.5 text-center text-xs tabular-nums outline-none"
-                        title="Delta override (deixe vazio para usar o sugerido)"
-                      />
-                    </div>
-                    <div className="flex shrink-0 gap-2">
-                      <Button
-                        size="sm"
-                        onClick={() => act(suggestion, "apply")}
-                        disabled={actingId !== null}
-                      >
-                        {actingId === suggestion.id ? <Spinner size={12} /> : null}
-                        Aplicar
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => act(suggestion, "reject")}
-                        disabled={actingId !== null}
-                      >
-                        Rejeitar
-                      </Button>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : (
-            <p className="py-4 text-sm text-muted">
-              Nenhuma sugestão pendente. A fila é populada pelo batch semanal.
-            </p>
-          )}
-
-          {previewError ? (
-            <p role="alert" className="border-t border-border-subtle pt-3 text-sm font-medium text-danger">
-              {previewError}
-            </p>
-          ) : null}
-
-          {previewData ? (
-            <div className="flex flex-col gap-4 border-t border-border-subtle pt-4">
-              <div>
-                <h3 className="mb-2 text-sm font-bold uppercase tracking-wider text-muted">
-                  Impacto por dificuldade ({formatInt(previewData.difficulties.length)})
-                </h3>
-                {previewData.difficulties.length === 0 ? (
-                  <p className="text-sm text-muted">Nenhuma dificuldade com amostra suficiente para sugestão.</p>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[680px] text-sm">
-                      <thead>
-                        <tr className="border-b border-border-subtle text-left text-[11px] uppercase tracking-wider text-muted">
-                          <th className="py-2 pr-3 font-bold">Mapa</th>
-                          <th className="py-2 pr-3 font-bold">Diff</th>
-                          <th className="py-2 pr-3 text-right font-bold">Stars</th>
-                          <th className="py-2 pr-3 text-right font-bold">Sugerido</th>
-                          <th className="py-2 pr-3 text-right font-bold">Δ</th>
-                          <th className="py-2 pr-3 text-center font-bold">Conf</th>
-                          <th className="py-2 pr-3 text-center font-bold">Auto</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {previewData.difficulties.map((d) => (
-                          <tr key={d.difficulty_id} className="border-b border-border-subtle/50 last:border-b-0">
-                            <td className="py-2 pr-3 font-medium">{d.map_name}</td>
-                            <td className="py-2 pr-3 text-muted">{d.difficulty}</td>
-                            <td className="py-2 pr-3 text-right tabular-nums">{formatNumber(d.current_stars)}</td>
-                            <td className="py-2 pr-3 text-right font-bold tabular-nums">
-                              {formatNumber(d.suggested_stars)}
-                            </td>
-                            <td className={`py-2 pr-3 text-right font-bold tabular-nums ${d.delta_stars > 0 ? "text-success" : d.delta_stars < 0 ? "text-danger" : ""}`}>
-                              {d.delta_stars > 0 ? "+" : ""}{formatNumber(d.delta_stars)}
-                            </td>
-                            <td className="py-2 pr-3 text-center text-xs">{d.confidence}</td>
-                            <td className="py-2 pr-3 text-center">
-                              {d.auto_appliable ? <Badge variant="success">sim</Badge> : <span className="text-muted/40">—</span>}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <h3 className="mb-2 text-sm font-bold uppercase tracking-wider text-muted">
-                  Ranking simulado (top {formatInt(previewData.ranking.length)})
-                </h3>
-                {previewData.ranking.length === 0 ? (
-                  <p className="text-sm text-muted">Nenhuma mudança de posição/PP no topo do ranking.</p>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[560px] text-sm">
-                      <thead>
-                        <tr className="border-b border-border-subtle text-left text-[11px] uppercase tracking-wider text-muted">
-                          <th className="py-2 pr-3 font-bold">Jogador</th>
-                          <th className="py-2 pr-3 text-center font-bold">Rank</th>
-                          <th className="py-2 pr-3 text-right font-bold">PP</th>
-                          <th className="py-2 pr-3 text-right font-bold">Δ</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {previewData.ranking.map((row) => (
-                          <tr key={row.name} className="border-b border-border-subtle/50 last:border-b-0">
-                            <td className="py-2 pr-3 font-medium">{row.name}</td>
-                            <td className="py-2 pr-3 text-center tabular-nums">
-                              {row.rank_before !== row.rank_after ? (
-                                <span>
-                                  <span className="text-muted">#{row.rank_before}</span>
-                                  {" → "}
-                                  <span className={`font-bold ${row.rank_after! < row.rank_before! ? "text-success" : "text-danger"}`}>
-                                    #{row.rank_after}
-                                  </span>
-                                </span>
-                              ) : (
-                                <span className="text-muted">#{row.rank_after}</span>
-                              )}
-                            </td>
-                            <td className="py-2 pr-3 text-right tabular-nums">
-                              {formatNumber(row.pp_before)} → {formatNumber(row.pp_after)}
-                            </td>
-                            <td className={`py-2 pr-3 text-right font-bold tabular-nums ${row.delta_pp > 0 ? "text-success" : row.delta_pp < 0 ? "text-danger" : "text-muted"}`}>
-                              {row.delta_pp > 0 ? "+" : ""}{formatNumber(row.delta_pp)}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
+        {token ? <ReweightCatalog token={token} /> : null}
       </div>
-
       <div hidden={tab !== "qualification"} className="flex flex-col gap-6">
       {/* Qualificação de mapas (nova batch) */}
       <Card id="qualify-entry">
