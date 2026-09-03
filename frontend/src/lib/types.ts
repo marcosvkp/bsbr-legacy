@@ -321,6 +321,47 @@ export interface SuggestionsResponse {
   items: ReweightSuggestion[];
 }
 
+/** Resultado da análise manual de UM mapa (POST /admin/reweight/analyze). */
+export interface ReweightAnalyzeMap {
+  id: number;
+  hash: string;
+  beatsaver_id: string | null;
+  name: string;
+  mapper: string | null;
+  bpm: number | null;
+  status: string;
+}
+
+export interface ReweightAnalyzeDifficulty {
+  difficulty_id: number;
+  name: string;
+  is_ranked: boolean;
+  current_stars: number | null;
+  ml_stars: number | null;
+  delta_ml: number | null;
+  perf_delta: number | null;
+  suggested_delta: number | null;
+  direction: "increase" | "decrease" | "keep";
+  confidence: string;
+  sample_size: number | null;
+  observed_acc: number | null;
+  expected_acc: number | null;
+}
+
+export interface ReweightAnalyzeResponse {
+  map: ReweightAnalyzeMap;
+  difficulties: ReweightAnalyzeDifficulty[];
+}
+
+/** Retorno de POST /admin/reweight/apply-delta. */
+export interface ApplyDeltaResponse {
+  difficulty_id: number;
+  old_stars: number;
+  new_stars: number;
+  scores_updated: number;
+  players_affected: number;
+}
+
 export interface SuggestionActionResponse {
   id: number;
   status: string;

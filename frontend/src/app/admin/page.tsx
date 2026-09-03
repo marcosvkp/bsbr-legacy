@@ -4,6 +4,7 @@ import { Fragment, Suspense, useCallback, useEffect, useRef, useState } from "re
 import { useSearchParams } from "next/navigation";
 import { ApiError, getJson, postJson } from "@/lib/api";
 import { AdminTabs, type AdminTab } from "./admin-tabs";
+import { ReweightAnalyze } from "./reweight-analyze";
 import { SuggestionsSection } from "./suggestions-section";
 import { WebhooksSection } from "./webhooks-section";
 import type {
@@ -18,6 +19,7 @@ import type {
   SuggestionsResponse,
 } from "@/lib/types";
 import { formatDateTime, formatInt, formatNumber } from "@/lib/format";
+import { SmartImg } from "@/components/smart-img";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -52,6 +54,7 @@ function AdminDashboard() {
   const [listError, setListError] = useState<string | null>(null);
 
   const [actingId, setActingId] = useState<number | null>(null);
+  const [deltaOverride, setDeltaOverride] = useState<Record<number, string>>({});
 
   const [collectLoading, setCollectLoading] = useState(false);
   const [collectError, setCollectError] = useState<string | null>(null);
@@ -279,7 +282,13 @@ function AdminDashboard() {
     if (!token) return;
     setActingId(suggestion.id);
     try {
-      await postJson(`/admin/reweight/${suggestion.id}/${action}`, {}, {
+      const body: Record<string, unknown> = {};
+      if (action === "apply") {
+        const override = deltaOverride[suggestion.id];
+        const parsed = override ? parseFloat(override) : NaN;
+        if (!Number.isNaN(parsed)) body.delta_override = parsed;
+      }
+      await postJson(`/admin/reweight/${suggestion.id}/${action}`, body, {
         headers: { "X-Admin-Token": token },
       });
       await loadSuggestions(token);
@@ -581,6 +590,11 @@ function AdminDashboard() {
       </Card>
 
       <div hidden={tab !== "reweight"} className="flex flex-col gap-6">
+      {/* Análise manual de reweight (mapa específico, direção e delta) */}
+      {token ? (
+        <ReweightAnalyze token={token} onApplied={() => loadSuggestions(token)} />
+      ) : null}
+
       {/* Fila de reweight */}
       <Card>
         <CardHeader className="flex-row items-center justify-between">
@@ -665,6 +679,24 @@ function AdminDashboard() {
                       <p className="mt-0.5 text-[11px] text-muted/70 tabular-nums">
                         amostra {formatInt(suggestion.sample_size)} · confiança {pct(suggestion.confidence)} · acc observada {pct(suggestion.observed_acc)} vs esperada {pct(suggestion.expected_acc)}
                       </p>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={deltaOverride[suggestion.id] ?? ""}
+                        onChange={(e) =>
+                          setDeltaOverride((prev) => ({
+                            ...prev,
+                            [suggestion.id]: e.target.value,
+                          }))
+                        }
+                        placeholder={(
+                          (suggestion.suggested_stars ?? 0) - (suggestion.current_stars ?? 0)
+                        ).toFixed(2)}
+                        className="w-14 rounded border border-border-subtle bg-background px-1 py-0.5 text-center text-xs tabular-nums outline-none"
+                        title="Delta override (deixe vazio para usar o sugerido)"
+                      />
                     </div>
                     <div className="flex shrink-0 gap-2">
                       <Button
@@ -981,142 +1013,135 @@ function AdminDashboard() {
               Nenhum candidato na fila. Analise um mapa acima para começar.
             </p>
           ) : (
-            <div className="overflow-x-auto rounded-lg border border-border-subtle">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border-subtle bg-surface text-left text-xs uppercase tracking-wider text-muted">
-                    <th scope="col" className="px-4 py-2.5 font-semibold">Mapa</th>
-                    <th scope="col" className="hidden px-4 py-2.5 font-semibold sm:table-cell">Mapper</th>
-                    <th scope="col" className="px-4 py-2.5 font-semibold">Status</th>
-                    <th scope="col" className="hidden px-4 py-2.5 font-semibold md:table-cell">BPM</th>
-                    <th scope="col" className="hidden px-4 py-2.5 font-semibold md:table-cell">Enviado por</th>
-                    <th scope="col" className="px-4 py-2.5 text-right font-semibold">Ação</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {candidates.map((cand) => {
-                    const isRankedMap = cand.status === "ranked";
-                    const candExcluded = excludedByMap[cand.id] ?? [];
-                    return (
-                      <Fragment key={cand.id}>
-                      <tr className="border-b border-border-subtle/60">
-                        <td className="px-4 py-2.5 font-medium">
-                          <span className="block max-w-56 truncate">{cand.name}</span>
-                        </td>
-                        <td className="hidden px-4 py-2.5 text-muted sm:table-cell">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {candidates.map((cand) => {
+                const isRankedMap = cand.status === "ranked";
+                const candExcluded = excludedByMap[cand.id] ?? [];
+                return (
+                  <div
+                    key={cand.id}
+                    className="flex flex-col overflow-hidden rounded-lg border border-border-subtle bg-surface shadow-sm"
+                  >
+                    {/* Cover + identidade */}
+                    <div className="relative flex items-center gap-3 p-3 pb-0">
+                      <SmartImg
+                        src={cand.cover_url ?? ""}
+                        alt=""
+                        fallback=""
+                        className="h-12 w-12 shrink-0 rounded-md object-cover"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="line-clamp-2 text-sm font-semibold leading-snug" title={cand.name}>
+                          {cand.name}
+                        </p>
+                        <p className="mt-0.5 truncate text-xs text-muted">
                           {cand.mapper ?? "—"}
-                        </td>
-                        <td className="px-4 py-2.5">
-                          <Badge variant={cand.status === "ranked" ? "success" : cand.status === "qualified" ? "secondary" : "warning"}>
-                            {cand.status === "ranked" ? "rankeado" : cand.status === "qualified" ? "na fila" : "candidato"}
-                          </Badge>
-                        </td>
-                        <td className="hidden px-4 py-2.5 tabular-nums text-muted md:table-cell">
-                          {cand.bpm ? Math.round(cand.bpm) : "—"}
-                        </td>
-                        <td className="hidden px-4 py-2.5 text-muted md:table-cell">
-                          {cand.submitted_by ?? "—"}
-                        </td>
-                        <td className="px-4 py-2.5">
-                          <div className="flex items-center justify-end gap-2">
-                            {cand.status === "qualified" ? (
-                              <Button
-                                size="sm"
-                                variant="secondary"
-                                onClick={() => runApprove(cand.id)}
-                                disabled={!token || approveLoading}
-                              >
-                                {approveLoading ? <Spinner size={12} /> : null}
-                                Aprovar
-                              </Button>
-                            ) : cand.status === "candidate" ? (
-                              <>
-                                <Button
-                                  size="sm"
-                                  variant="secondary"
-                                  onClick={() => runQualifyForCandidate(cand.hash)}
-                                  disabled={!token || qualifyLoading}
-                                >
-                                  {qualifyLoading ? <Spinner size={12} /> : null}
-                                  Analisar com o ML
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  onClick={() => runQueueFor(cand.id)}
-                                  disabled={!token || queueLoading}
-                                >
-                                  {queueLoading ? <Spinner size={12} /> : null}
-                                  Colocar na fila
-                                </Button>
-                              </>
-                            ) : null}
-                            {!isRankedMap ? (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => runReject(cand.id)}
-                                disabled={!token || rejectLoading === cand.id}
-                                className="text-danger hover:text-danger"
-                              >
-                                {rejectLoading === cand.id ? <Spinner size={12} /> : null}
-                                Recusar
-                              </Button>
-                            ) : null}
-                          </div>
-                        </td>
-                      </tr>
-                      <tr className="border-b border-border-subtle/30 last:border-b-0">
-                        <td colSpan={6} className="bg-background/40 px-4 py-2">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-[11px] font-bold uppercase tracking-wider text-muted">
-                              Dificuldades
-                            </span>
-                            {cand.difficulties.length === 0 ? (
-                              <span className="text-xs text-warning">
-                                sem análise — clique em "Analisar com o ML"
+                          {cand.bpm ? ` · ${Math.round(cand.bpm)} BPM` : ""}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Status + ações */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 p-3 pb-0">
+                      <Badge
+                        variant={cand.status === "ranked" ? "success" : cand.status === "qualified" ? "secondary" : "warning"}
+                      >
+                        {cand.status === "ranked" ? "rankeado" : cand.status === "qualified" ? "na fila" : "candidato"}
+                      </Badge>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {cand.status === "qualified" ? (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => runApprove(cand.id)}
+                            disabled={!token || approveLoading}
+                          >
+                            {approveLoading ? <Spinner size={12} /> : null}
+                            Aprovar
+                          </Button>
+                        ) : cand.status === "candidate" ? (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => runQualifyForCandidate(cand.hash)}
+                              disabled={!token || qualifyLoading}
+                            >
+                              {qualifyLoading ? <Spinner size={12} /> : null}
+                              Analisar ML
+                            </Button>
+                            <Button
+                              size="sm"
+                              onClick={() => runQueueFor(cand.id)}
+                              disabled={!token || queueLoading}
+                            >
+                              {queueLoading ? <Spinner size={12} /> : null}
+                              Colocar na fila
+                            </Button>
+                          </>
+                        ) : null}
+                        {!isRankedMap ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => runReject(cand.id)}
+                            disabled={!token || rejectLoading === cand.id}
+                            className="text-danger hover:text-danger"
+                          >
+                            {rejectLoading === cand.id ? <Spinner size={12} /> : null}
+                            Recusar
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    {/* Dificuldades */}
+                    <div className="flex flex-wrap items-center gap-1.5 p-3">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-muted">
+                        Diffs
+                      </span>
+                      {cand.difficulties.length === 0 ? (
+                        <span className="text-xs text-warning">
+                          sem análise — clique em "Analisar com o ML"
+                        </span>
+                      ) : (
+                        cand.difficulties.map((d) => {
+                          const excluded = candExcluded.includes(d.name);
+                          const toggling = rankToggling?.diffId === d.id;
+                          return (
+                            <label
+                              key={d.id}
+                              className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors ${
+                                excluded
+                                  ? "border-border-subtle bg-background/60 text-muted line-through"
+                                  : "border-border-subtle bg-background text-foreground"
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={!excluded}
+                                onChange={(e) =>
+                                  setCandExcluded(cand.id, d.name, !e.target.checked)
+                                }
+                                aria-label={`Rankear ${d.name} de ${cand.name}`}
+                                className="h-3.5 w-3.5 cursor-pointer accent-[var(--secondary)]"
+                              />
+                              <span className="font-semibold">{d.name}</span>
+                              <span className="tabular-nums text-muted">
+                                {d.total_stars != null ? formatNumber(d.total_stars) : "—"}★
                               </span>
-                            ) : (
-                              cand.difficulties.map((d) => {
-                                const excluded = candExcluded.includes(d.name);
-                                const toggling = rankToggling?.diffId === d.id;
-                                return (
-                                  <label
-                                    key={d.id}
-                                    className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors ${
-                                      excluded
-                                        ? "border-border-subtle bg-background/60 text-muted line-through"
-                                        : "border-border-subtle bg-surface text-foreground"
-                                    }`}
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={!excluded}
-                                      onChange={(e) =>
-                                        setCandExcluded(cand.id, d.name, !e.target.checked)
-                                      }
-                                      aria-label={`Rankear ${d.name} de ${cand.name}`}
-                                      className="h-3.5 w-3.5 cursor-pointer accent-[var(--secondary)]"
-                                    />
-                                    <span className="font-semibold">{d.name}</span>
-                                    <span className="tabular-nums text-muted">
-                                      {d.total_stars != null ? formatNumber(d.total_stars) : "—"}★
-                                    </span>
-                                    {excluded ? (
-                                      <span className="font-semibold text-danger">fora</span>
-                                    ) : null}
-                                    {toggling ? <Spinner size={10} /> : null}
-                                  </label>
-                                );
-                              })
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                      </Fragment>
-                    );
-                  })}
-                </tbody>
-              </table>
+                              {excluded ? (
+                                <span className="font-semibold text-danger">fora</span>
+                              ) : null}
+                              {toggling ? <Spinner size={10} /> : null}
+                            </label>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
           {rejectError ? (
