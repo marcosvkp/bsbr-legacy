@@ -218,13 +218,20 @@ async def test_latest_playlist_download(client, seeded):
     assert data["customData"]["syncURL"].endswith("/api/v1/playlists/latest.bplist")
 
 
-async def test_admin_requires_token(client):
-    assert client.get("/api/v1/admin/reweight/suggestions").status_code == 403
+async def test_admin_requires_auth(client):
+    # Sem credencial → 401; token errado → 403; token certo → ok
+    assert client.get("/api/v1/admin/reweight/suggestions").status_code == 401
     assert (
         client.get(
             "/api/v1/admin/reweight/suggestions", headers={"X-Admin-Token": "errado"}
         ).status_code
         == 403
+    )
+    assert (
+        client.get(
+            "/api/v1/admin/reweight/suggestions", headers={"X-Admin-Token": "test-token"}
+        ).status_code
+        == 200
     )
 
 
@@ -266,7 +273,7 @@ async def test_admin_flow_with_token(client, seeded):
 
 async def test_admin_batches_requires_token_and_lists(client, seeded):
     headers = {"X-Admin-Token": "test-token"}
-    assert client.get("/api/v1/admin/batches").status_code == 403
+    assert client.get("/api/v1/admin/batches").status_code == 401
 
     run_resp = client.post("/api/v1/admin/batch/run", headers=headers)
     assert run_resp.status_code == 200, run_resp.text
@@ -370,8 +377,8 @@ async def test_admin_candidates_and_qualify_flow(client, seeded):
     assert a.status_code == 422
     assert "ss_leaderboard_id ausente" in a.json()["detail"]
 
-    # sem token -> 403
-    assert client.get("/api/v1/admin/maps/candidates").status_code == 403
+    # sem token -> 401 (anônimo)
+    assert client.get("/api/v1/admin/maps/candidates").status_code == 401
     assert client.post("/api/v1/admin/maps/999/qualify", headers=headers).status_code == 404
 
 

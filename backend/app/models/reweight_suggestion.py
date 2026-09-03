@@ -27,7 +27,9 @@ class ReweightSuggestion(Base):
     status: Mapped[SuggestionStatus] = mapped_column(
         enum_column(SuggestionStatus), nullable=False, default=SuggestionStatus.PENDING, index=True
     )
-    reviewed_by: Mapped[str | None] = mapped_column(String(64))  # discord_id do staff
+    reviewed_by: Mapped[str | None] = mapped_column(String(64))  # ss_id / discord_id do staff
+    # "collect" = gerada pelo batch semanal; "manual" = enfileirada no catálogo do admin
+    origin: Mapped[str] = mapped_column(String(8), nullable=False, default="collect")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

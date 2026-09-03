@@ -144,7 +144,7 @@ async def sample(session: AsyncSession) -> dict[str, Any]:
         pp_tech=2600.5,
         pp_speed=1631.6,
     )
-    staff = StaffUser(discord_id="111222333444555666", role="admin")
+    staff = StaffUser(ss_id="76561198000000002", role="admin")
 
     session.add_all([player, map_, difficulty, score, batch, rating, suggestion, snapshot, staff])
     await session.commit()
@@ -206,7 +206,7 @@ async def test_enum_and_timestamp_defaults(session: AsyncSession) -> None:
     """Defaults de enum persistem como valor lowercase; timestamps têm server_default."""
     map_ = Map(hash="deadbeef" * 4, name="Untitled")
     batch = Batch()
-    staff = StaffUser(discord_id="999888777666555444")
+    staff = StaffUser(ss_id="76561198000000003")
     session.add_all([map_, batch, staff])
     await session.commit()
 
@@ -271,8 +271,8 @@ async def test_unique_rank_snapshot_week_player(session: AsyncSession, sample) -
     await session.rollback()
 
 
-async def test_unique_staff_discord_id(session: AsyncSession, sample) -> None:
-    session.add(StaffUser(discord_id="111222333444555666"))
+async def test_unique_staff_ss_id(session: AsyncSession, sample) -> None:
+    session.add(StaffUser(ss_id="76561198000000002"))
     with pytest.raises(IntegrityError):
         await session.commit()
     await session.rollback()

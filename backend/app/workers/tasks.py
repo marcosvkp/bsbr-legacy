@@ -29,7 +29,7 @@ async def run_weekly_batch() -> dict:
     from app.models import Batch, BatchKind, Difficulty, RatingHistory
     from app.services.playlist import generate_bsbr_playlist
     from app.services.ranking import recompute_all_rankings, write_weekly_snapshot
-    from app.services.reweight.service import collect_suggestions
+    from app.services.reweight.service import apply_manual_queue, collect_suggestions
     from app.services.sync import sync_all_ranked_difficulties
 
     async with SessionLocal() as session:
@@ -41,26 +41,11 @@ async def run_weekly_batch() -> dict:
         try:
             sync_stats = await sync_all_ranked_difficulties(session)
             reweight_stats = await collect_suggestions(session, batch_id=batch.id)
+            # Fila manual do admin (origin='manual' PENDING): aplica neste batch
+            # (RatingHistory com batch_id, stars + PP dos scores recalculados).
+            manual_applied = await apply_manual_queue(session, batch_id=batch.id)
             ranking = await recompute_all_rankings(session)
             snapshot_count = await write_weekly_snapshot(session)
-
-            # Reweights manuais (apply no admin) nascem com batch_id NULL.
-            # O relatório sai aqui, no batch: varre as aplicações manuais
-            # ainda não reportadas para este batch e reporta tudo junto
-            # (manuais + auto do batch) numa mensagem só.
-            manual = (
-                (
-                    await session.scalars(
-                        select(RatingHistory).where(
-                            RatingHistory.batch_id.is_(None),
-                            RatingHistory.total_stars_before.is_not(None),
-                        )
-                    )
-                )
-                .all()
-            )
-            for h in manual:
-                h.batch_id = batch.id
 
             changed = (
                 (
@@ -83,6 +68,7 @@ async def run_weekly_batch() -> dict:
                 "reweight_evaluated": reweight_stats["evaluated"],
                 "reweight_auto_applied": reweight_stats["auto_applied"],
                 "reweight_pending": reweight_stats["pending"],
+                "reweight_manual_applied": manual_applied,
                 "players_updated": ranking.players_updated,
                 "snapshot_players": snapshot_count,
                 "ratings_changed": len(changed),

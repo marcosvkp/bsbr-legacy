@@ -145,19 +145,28 @@ async def _upsert_suggestion(
     session: AsyncSession,
     difficulty: Difficulty,
     result: ReweightResult,
+    *,
+    origin: str = "collect",
 ) -> ReweightSuggestion:
+    """Cria/atualiza a sugestão PENDING de uma dificuldade (por origin).
+
+    Fila manual (origin='manual', enfileirada no catálogo) e sugestões do
+    batch (origin='collect') convivem sem se sobrescrever: o staff enfileira
+    e o batch não pisa em cima.
+    """
     existing = (
         await session.scalars(
             select(ReweightSuggestion)
             .where(
                 ReweightSuggestion.difficulty_id == difficulty.id,
                 ReweightSuggestion.status == SuggestionStatus.PENDING,
+                ReweightSuggestion.origin == origin,
             )
             .limit(1)
         )
     ).first()
     if existing is None:
-        existing = ReweightSuggestion(difficulty_id=difficulty.id)
+        existing = ReweightSuggestion(difficulty_id=difficulty.id, origin=origin)
         session.add(existing)
     existing.observed_acc = result.median_acc
     existing.expected_acc = result.expected_acc
@@ -225,12 +234,26 @@ async def collect_suggestions(
 
     stats = {"evaluated": 0, "pending": 0, "auto_applied": 0}
     for difficulty in difficulties:
+        # Fila manual do staff tem prioridade: o batch não gera sugestão própria
+        # para uma dificuldade que o staff já enfileirou.
+        manual = (
+            await session.scalar(
+                select(ReweightSuggestion).where(
+                    ReweightSuggestion.difficulty_id == difficulty.id,
+                    ReweightSuggestion.status == SuggestionStatus.PENDING,
+                    ReweightSuggestion.origin == "manual",
+                )
+            )
+        )
+        if manual is not None:
+            stats["pending"] += 1
+            continue
         scores = await _difficulty_scores(session, difficulty.id)
         result = await analyze_difficulty_with_ml(difficulty, difficulty.map, scores)
         if result.confidence == "none":
             continue
         stats["evaluated"] += 1
-        suggestion = await _upsert_suggestion(session, difficulty, result)
+        suggestion = await _upsert_suggestion(session, difficulty, result, origin="collect")
         if auto_apply and result.can_auto_apply:
             await _apply_to_difficulty(
                 session, difficulty, result, reviewed_by=_SYSTEM_REVIEWER, batch_id=batch_id
@@ -448,6 +471,20 @@ async def analyze_source(
     )
 
     items = []
+    # Delta da fila manual pendente (origin='manual'), se houver — permite à UI
+    # mostrar "na fila" e o valor que será aplicado no próximo batch.
+    queued_by_diff: dict[int, float | None] = {}
+    queued_rows = (
+        await session.scalars(
+            select(ReweightSuggestion).where(
+                ReweightSuggestion.status == SuggestionStatus.PENDING,
+                ReweightSuggestion.origin == "manual",
+            )
+        )
+    ).all()
+    for q in queued_rows:
+        queued_by_diff[q.difficulty_id] = q.delta_stars
+
     for d in difficulties:
         item: dict = {
             "difficulty_id": d.id,
@@ -463,6 +500,7 @@ async def analyze_source(
             "sample_size": None,
             "observed_acc": None,
             "expected_acc": None,
+            "queued_delta": queued_by_diff.get(d.id),
         }
         if ml and d.name in ml and d.total_stars:
             item["delta_ml"] = round(float(ml[d.name]) - float(d.total_stars), 2)
@@ -516,6 +554,255 @@ def _shares_of(difficulty: Difficulty) -> tuple[float, float, float]:
         float(difficulty.tech_stars or 0.0) / total_share,
         float(difficulty.speed_stars or 0.0) / total_share,
     )
+
+
+async def analyze_difficulty_components(
+    session: AsyncSession, difficulty: Difficulty
+) -> dict:
+    """Componentes ML/perf de uma dificuldade (mesma base do analyze_source)."""
+    map_ = await session.get(Map, difficulty.map_id)
+    item: dict = {
+        "difficulty_id": difficulty.id,
+        "name": difficulty.name,
+        "is_ranked": difficulty.is_ranked,
+        "current_stars": difficulty.total_stars,
+        "ml_stars": None,
+        "delta_ml": None,
+        "perf_delta": None,
+        "confidence": "none",
+        "sample_size": None,
+        "observed_acc": None,
+        "expected_acc": None,
+    }
+    if map_ is None or not difficulty.total_stars:
+        return item
+    ml = await _ml_stars_by_difficulty(map_.beatsaver_id or map_.hash)
+    if ml and difficulty.name in ml:
+        item["ml_stars"] = float(ml[difficulty.name])
+        item["delta_ml"] = round(float(ml[difficulty.name]) - float(difficulty.total_stars), 2)
+    if difficulty.is_ranked:
+        scores = await _difficulty_scores(session, difficulty.id)
+        base = analyze_difficulty(scores, float(difficulty.total_stars))
+        item["sample_size"] = base.sample_size
+        item["observed_acc"] = base.median_acc
+        item["expected_acc"] = base.expected_acc
+        if base.confidence != "none":
+            item["confidence"] = base.confidence
+            item["perf_delta"] = base.delta_stars
+    return item
+
+
+def _delta_by_method(delta_ml: float | None, perf_delta: float | None, method: str) -> float | None:
+    """Combina delta_ml e perf_delta conforme o método escolhido no catálogo."""
+    if method == "ml":
+        return delta_ml
+    if method == "perf":
+        return perf_delta
+    if delta_ml is not None and perf_delta is not None:
+        return round(0.5 * delta_ml + 0.5 * perf_delta, 2)
+    return delta_ml if delta_ml is not None else perf_delta
+
+
+async def enqueue_manual(
+    session: AsyncSession,
+    *,
+    difficulty_id: int,
+    method: str,
+    reviewer: str,
+) -> ReweightSuggestion:
+    """Enfileira um reweight manual (NÃO aplica — entra no próximo batch).
+
+    Gera/atualiza a sugestão PENDING origin='manual' com reason honesto do ML
+    + perf conforme o método (ml / perf / mix). Não mexe nas stars da difficulty.
+    """
+    difficulty = await session.get(Difficulty, difficulty_id)
+    if difficulty is None or difficulty.total_stars is None:
+        raise ValueError(f"dificuldade {difficulty_id} inválida")
+
+    comp = await analyze_difficulty_components(session, difficulty)
+    current = float(difficulty.total_stars)
+    delta_ml = comp["delta_ml"]
+    perf_delta = comp["perf_delta"]
+    if method not in ("ml", "perf", "mix"):
+        method = "mix"
+    delta = _delta_by_method(delta_ml, perf_delta, method)
+    if delta is None:
+        raise ValueError("sem predição do ML nem amostra de performance para reweight")
+
+    # Reason honesto: ML + perf, nunca "ajuste manual" quando veio da análise.
+    parts: list[str] = []
+    if delta_ml is not None:
+        parts.append(f"ML {comp['ml_stars']:.2f}★ (Δ{delta_ml:+.2f})")
+    if perf_delta is not None:
+        parts.append(
+            f"perf {comp['observed_acc'] * 100:.1f}% vs {comp['expected_acc'] * 100:.1f}% "
+            f"esperado (n={comp['sample_size']})"
+        )
+    if delta_ml is not None and perf_delta is not None:
+        label = {"ml": "só ML", "perf": "só perf", "mix": "ML+perf"}[method]
+        parts.append(label)
+    reason = " + ".join(parts) + f" → {delta:+.2f}★"
+    suggested = round(max(0.1, current + delta), 2)
+
+    result = ReweightResult(
+        sample_size=comp["sample_size"] or 0,
+        weighted_acc=None,
+        median_acc=comp["observed_acc"],
+        fc_rate=None,
+        expected_acc=comp["expected_acc"],
+        delta_stars=delta,
+        suggested_stars=suggested,
+        confidence=comp["confidence"],
+        direction="increase" if delta > 0.05 else ("decrease" if delta < -0.05 else "keep"),
+        reason=reason,
+        can_auto_apply=False,
+    )
+    suggestion = await _upsert_suggestion(session, difficulty, result, origin="manual")
+    suggestion.reviewed_by = reviewer
+    await session.commit()
+    await session.refresh(suggestion)
+    return suggestion
+
+
+async def remove_manual_queue(session: AsyncSession, difficulty_id: int) -> bool:
+    """Remove a sugestão manual PENDING de uma dificuldade (desenfileirar)."""
+    suggestion = await session.scalar(
+        select(ReweightSuggestion).where(
+            ReweightSuggestion.difficulty_id == difficulty_id,
+            ReweightSuggestion.status == SuggestionStatus.PENDING,
+            ReweightSuggestion.origin == "manual",
+        )
+    )
+    if suggestion is None:
+        return False
+    await session.delete(suggestion)
+    await session.commit()
+    return True
+
+
+async def apply_manual_queue(session: AsyncSession, *, batch_id: int) -> int:
+    """Aplica no batch a fila manual (origin='manual' PENDING) enfileirada no admin.
+
+    Chamado dentro do batch semanal, ANTES de recompute_all_rankings. Cada item
+    grava RatingHistory com batch_id e recalcula o PP dos scores da dificuldade.
+    """
+    suggestions = (
+        (
+            await session.scalars(
+                select(ReweightSuggestion).where(
+                    ReweightSuggestion.status == SuggestionStatus.PENDING,
+                    ReweightSuggestion.origin == "manual",
+                )
+            )
+        ).all()
+    )
+    applied = 0
+    for suggestion in suggestions:
+        difficulty = await session.get(Difficulty, suggestion.difficulty_id)
+        if difficulty is None or difficulty.total_stars is None:
+            continue
+        delta = suggestion.delta_stars
+        if delta is None:
+            continue
+        suggested = round(max(0.1, float(difficulty.total_stars) + float(delta)), 2)
+        result = ReweightResult(
+            sample_size=suggestion.sample_size or 0,
+            weighted_acc=None,
+            median_acc=suggestion.observed_acc,
+            fc_rate=None,
+            expected_acc=suggestion.expected_acc,
+            delta_stars=float(delta),
+            suggested_stars=suggested,
+            confidence=suggestion.confidence or "low",
+            direction="increase" if float(delta) > 0.05 else ("decrease" if float(delta) < -0.05 else "keep"),
+            reason=suggestion.reason or f"reweight (Δ{delta:+.2f}★)",
+            can_auto_apply=False,
+        )
+        await _apply_to_difficulty(
+            session,
+            difficulty,
+            result,
+            reviewed_by=suggestion.reviewed_by or _SYSTEM_REVIEWER,
+            batch_id=batch_id,
+        )
+        suggestion.status = SuggestionStatus.APPLIED
+        suggestion.reviewed_by = suggestion.reviewed_by or _SYSTEM_REVIEWER
+        await recompute_difficulty_scores(session, difficulty.id)
+        applied += 1
+    await session.commit()
+    return applied
+
+
+async def preview_difficulty(
+    session: AsyncSession,
+    difficulty_id: int,
+    *,
+    method: str,
+    seed: int | None = None,
+    noise_sigma: float = 0.47,
+    samples: int = 200,
+) -> dict:
+    """Preview de reweight de UMA dificuldade com peso do método e ruído seedado.
+
+    Retorna o delta base (sem ruído) e, quando ``seed`` é informado, os
+    percentis do delta com ruído gaussiano na predição do ML (``noise_sigma``
+    em estrelas, default = MAE do modelo). Não persiste nada.
+    """
+    import random
+    import statistics
+
+    difficulty = await session.get(Difficulty, difficulty_id)
+    if difficulty is None or difficulty.total_stars is None:
+        raise ValueError(f"dificuldade {difficulty_id} inválida")
+    if method not in ("ml", "perf", "mix"):
+        method = "mix"
+
+    comp = await analyze_difficulty_components(session, difficulty)
+    current = float(difficulty.total_stars)
+    delta_ml = comp["delta_ml"]
+    perf_delta = comp["perf_delta"]
+
+    base_delta = _delta_by_method(delta_ml, perf_delta, method)
+    if base_delta is None:
+        raise ValueError("sem predição do ML nem amostra de performance para preview")
+
+    def project(d_ml: float | None) -> float | None:
+        return _delta_by_method(d_ml, perf_delta, method)
+
+    payload: dict = {
+        "difficulty_id": difficulty_id,
+        "method": method,
+        "current_stars": round(current, 2),
+        "delta_ml": delta_ml,
+        "perf_delta": perf_delta,
+        "delta_base": base_delta,
+        "stars_base": round(current + base_delta, 2),
+        "confidence": comp["confidence"],
+        "sample_size": comp["sample_size"],
+        "seed": seed,
+    }
+
+    if seed is None:
+        return payload
+
+    rng = random.Random(seed)
+    deltas: list[float] = []
+    for _ in range(samples):
+        noisy = (delta_ml + rng.gauss(0.0, noise_sigma)) if delta_ml is not None else None
+        d = project(noisy)
+        if d is not None:
+            deltas.append(round(current + d, 3))
+    if not deltas:
+        return payload
+
+    def pct(q: float) -> float:
+        return round(float(statistics.quantiles(deltas, n=100, method="inclusive")[int(q) - 1]), 2)
+
+    payload["noise_sigma"] = noise_sigma
+    payload["stars_p5"] = pct(5)
+    payload["stars_p50"] = pct(50)
+    payload["stars_p95"] = pct(95)
+    return payload
 
 
 async def preview_suggestions(session: AsyncSession) -> dict:

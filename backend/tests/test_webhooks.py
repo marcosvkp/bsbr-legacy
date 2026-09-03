@@ -46,7 +46,7 @@ async def client(tmp_path, monkeypatch):
 
 async def test_webhooks_require_admin(client):
     r = client.get("/api/v1/admin/webhooks")
-    assert r.status_code == 403
+    assert r.status_code == 401
 
 
 async def test_webhook_crud(client):

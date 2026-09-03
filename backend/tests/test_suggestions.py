@@ -231,7 +231,7 @@ async def test_admin_list_suggestions(client, monkeypatch):
 
 async def test_admin_list_requires_auth(client):
     r = client.get("/api/v1/admin/suggestions")
-    assert r.status_code == 403
+    assert r.status_code == 401
 
 
 async def test_admin_approve_creates_candidate(client, monkeypatch):

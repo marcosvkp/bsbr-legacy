@@ -14,6 +14,8 @@ from app.services.reweight.service import (
     recompute_difficulty_scores,
 )
 
+STEAM_ID = "76561198000000001"
+
 
 @pytest.fixture(autouse=True)
 def _no_ml_network(monkeypatch):
@@ -193,3 +195,157 @@ async def test_analyze_source_difficulty_without_scores_ml_only(session):
     assert item["is_ranked"] is False
     assert item["confidence"] == "none"
     assert item["perf_delta"] is None
+
+
+# ---------------------------------------------------------------------------
+# Fila manual (origin='manual') — aplica só no batch
+# ---------------------------------------------------------------------------
+
+
+async def test_enqueue_manual_creates_pending_without_mutating(session):
+    from app.models import RatingHistory, ReweightSuggestion, SuggestionStatus
+    from app.services.reweight.service import enqueue_manual
+
+    map_ = await make_map(session)
+    d = await make_difficulty(session, map_, total=5.0, acc=1.0, tech=3.0, speed=1.0)
+    await seed_scores(session, d.id, [0.91] * 40)  # conf medium → perf_delta presente
+    before = d.total_stars
+
+    sug = await enqueue_manual(session, difficulty_id=d.id, method="perf", reviewer=STEAM_ID)
+
+    # NÃO muta a difficulty (aplicação adiada para o batch)
+    await session.refresh(d)
+    assert d.total_stars == before
+    assert sug.origin == "manual"
+    assert sug.status == SuggestionStatus.PENDING
+    assert sug.delta_stars is not None
+    assert "manual" not in (sug.reason or "").lower()  # reason honesto (ML/perf)
+
+    # Nenhum RatingHistory ainda
+    assert (await session.scalars(select(RatingHistory))).first() is None
+
+
+async def test_enqueue_upserts_same_difficulty(session):
+    from app.models import ReweightSuggestion, SuggestionStatus
+    from app.services.reweight.service import enqueue_manual
+
+    map_ = await make_map(session)
+    d = await make_difficulty(session, map_, total=5.0)
+    await seed_scores(session, d.id, [0.91] * 40)
+
+    await enqueue_manual(session, difficulty_id=d.id, method="perf", reviewer=STEAM_ID)
+    sug2 = await enqueue_manual(session, difficulty_id=d.id, method="perf", reviewer=STEAM_ID)
+
+    rows = (
+        await session.scalars(
+            select(ReweightSuggestion).where(
+                ReweightSuggestion.origin == "manual",
+                ReweightSuggestion.status == SuggestionStatus.PENDING,
+            )
+        )
+    ).all()
+    assert len(rows) == 1
+    assert rows[0].id == sug2.id
+
+
+async def test_remove_manual_queue(session):
+    from app.services.reweight.service import enqueue_manual, remove_manual_queue
+
+    map_ = await make_map(session)
+    d = await make_difficulty(session, map_, total=5.0)
+    await seed_scores(session, d.id, [0.91] * 40)
+    await enqueue_manual(session, difficulty_id=d.id, method="perf", reviewer=STEAM_ID)
+
+    assert await remove_manual_queue(session, d.id) is True
+    assert await remove_manual_queue(session, d.id) is False
+
+
+async def test_collect_does_not_overwrite_manual_queue(session):
+    from app.models import ReweightSuggestion, SuggestionStatus
+    from app.services.reweight.service import collect_suggestions, enqueue_manual
+
+    map_ = await make_map(session)
+    d = await make_difficulty(session, map_, total=5.0)
+    await seed_scores(session, d.id, [0.91] * 40)
+
+    manual = await enqueue_manual(session, difficulty_id=d.id, method="perf", reviewer=STEAM_ID)
+    # collect roda (ex.: batch) e NÃO cria sugestão collect para a mesma dificuldade
+    stats = await collect_suggestions(session, auto_apply=True)
+    rows = (
+        await session.scalars(
+            select(ReweightSuggestion).where(
+                ReweightSuggestion.status == SuggestionStatus.PENDING
+            )
+        )
+    ).all()
+    assert all(r.id == manual.id for r in rows)
+    assert stats["pending"] >= 1  # a fila manual conta como pendente
+
+
+async def test_apply_manual_queue_applies_on_batch(session):
+    from app.models import Batch, BatchKind, RatingHistory, ReweightSuggestion, SuggestionStatus
+    from app.services.ranking import recompute_all_rankings
+    from app.services.reweight.service import apply_manual_queue, enqueue_manual
+
+    map_ = await make_map(session)
+    d = await make_difficulty(session, map_, total=5.0, acc=1.0, tech=3.0, speed=1.0)
+    await seed_scores(session, d.id, [0.95] * 40)
+    manual = await enqueue_manual(session, difficulty_id=d.id, method="perf", reviewer=STEAM_ID)
+
+    batch = Batch(kind=BatchKind.MANUAL)
+    session.add(batch)
+    await session.commit()
+
+    applied = await apply_manual_queue(session, batch_id=batch.id)
+    assert applied == 1
+
+    await session.refresh(d)
+    assert d.total_stars == manual.suggested_stars
+
+    await session.refresh(manual)
+    assert manual.status == SuggestionStatus.APPLIED
+
+    hist = (await session.scalars(select(RatingHistory))).first()
+    assert hist is not None
+    assert hist.batch_id == batch.id
+    assert hist.applied_by == STEAM_ID
+    assert hist.reason == manual.reason
+
+    # scores recalculados com as novas stars
+    rows = (await session.scalars(select(Score))).all()
+    assert len(rows) == 40
+    assert all(r.pp is not None and r.pp > 0 for r in rows)
+
+
+async def test_preview_difficulty_with_seed(session):
+    from app.services.reweight.service import preview_difficulty
+
+    map_ = await make_map(session)
+    d = await make_difficulty(session, map_, total=5.0)
+    await seed_scores(session, d.id, [0.91] * 40)
+
+    base = await preview_difficulty(session, d.id, method="perf")
+    assert base["delta_base"] is not None
+    assert base["stars_base"] == pytest.approx(5.0 + base["delta_base"], abs=0.01)
+
+    seeded = await preview_difficulty(session, d.id, method="perf", seed=42, noise_sigma=0.47)
+    assert "stars_p5" in seeded and "stars_p50" in seeded and "stars_p95" in seeded
+    # method=perf → o ruído do ML não afeta (só perf); sem ruído → p50 == base
+    assert seeded["stars_p50"] == seeded["stars_base"]
+
+    # método mix com ML → percentis variam
+    import app.services.reweight.service as service
+
+    async def _ml(src):
+        return {"ExpertPlus": 6.0}
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(service, "_ml_stars_by_difficulty", _ml)
+    try:
+        seeded2 = await preview_difficulty(session, d.id, method="mix", seed=7)
+        assert seeded2["delta_ml"] is not None
+        # determinístico com seed: mesmo seed → mesmos percentis
+        seeded3 = await preview_difficulty(session, d.id, method="mix", seed=7)
+        assert seeded2["stars_p50"] == seeded3["stars_p50"]
+    finally:
+        monkeypatch.undo()

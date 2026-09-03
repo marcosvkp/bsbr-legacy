@@ -16,6 +16,7 @@ from sqlalchemy.orm import joinedload
 from app.core.cache import cache
 from app.core.config import get_settings
 from app.core.db import get_db
+from app.core.user_session import verify_cookie
 from app.models import (
     Batch,
     Difficulty,
@@ -25,6 +26,7 @@ from app.models import (
     MapSuggestionStatus,
     Player,
     ReweightSuggestion,
+    StaffUser,
     SuggestionStatus,
     WebhookConfig,
 )
@@ -33,8 +35,11 @@ from app.services.reweight.service import (
     apply_suggestion,
     analyze_source,
     collect_suggestions,
+    enqueue_manual,
+    preview_difficulty,
     preview_suggestions,
     reject_suggestion,
+    remove_manual_queue,
     apply_delta,
 )
 from app.services.suggestions import create_map_from_suggestion
@@ -49,16 +54,63 @@ def _escape_like(value: str) -> str:
 router = APIRouter(prefix="/admin")
 
 
-async def require_admin(
+async def _staff_by_steam(db: AsyncSession, bsbr_user_session: str | None) -> StaffUser | None:
+    """Resolve o staff pelo cookie de sessão Steam (ss_id na tabela staff_users)."""
+    ss_id = verify_cookie(bsbr_user_session) if bsbr_user_session else None
+    if ss_id is None:
+        return None
+    return await db.scalar(select(StaffUser).where(StaffUser.ss_id == ss_id).limit(1))
+
+
+async def current_staff(
     x_admin_token: str | None = Header(default=None),
+    bsbr_user_session: str | None = Cookie(default=None),
     bsbr_admin_session: str | None = Cookie(default=None),
-) -> None:
-    """Aceita sessão OAuth Discord (cookie) ou o X-Admin-Token de fallback."""
+    db: AsyncSession = Depends(get_db),
+) -> StaffUser:
+    """Identidade do admin: sessão Steam (staff), OAuth Discord ou token de fallback.
+
+    Distingue 401 (sem sessão válida) de 403 (logado mas não é staff) para o
+    gate do frontend saber entre "Entrar com Steam" e "acesso restrito".
+    """
+    # 1. Sessão OAuth Discord (legado/opcional)
     if admin_session_ok(bsbr_admin_session):
-        return
+        return StaffUser(ss_id="discord-admin", role="staff", name="Discord admin")
+
+    # 2. X-Admin-Token de emergência (igual ao admin_token configurado)
     expected = get_settings().admin_token
-    if not expected or x_admin_token != expected:
-        raise HTTPException(status_code=403, detail="token de admin inválido")
+    if expected and x_admin_token == expected:
+        return StaffUser(ss_id="token-admin", role="owner", name="Admin")
+
+    # 3. Sessão Steam validada contra staff_users
+    ss_id = verify_cookie(bsbr_user_session) if bsbr_user_session else None
+    if ss_id is not None:
+        staff = await db.scalar(select(StaffUser).where(StaffUser.ss_id == ss_id).limit(1))
+        if staff is not None:
+            return staff
+        # Sessão válida, mas o jogador não faz parte da equipe
+        raise HTTPException(status_code=403, detail="acesso restrito à equipe do BSBR")
+
+    # Token informado porém errado → tentativa de acesso negada (403).
+    if x_admin_token:
+        raise HTTPException(status_code=403, detail="acesso restrito à equipe do BSBR")
+
+    # Sem nenhuma credencial válida
+    raise HTTPException(status_code=401, detail="não autenticado")
+
+
+async def require_admin(
+    staff: StaffUser = Depends(current_staff),
+) -> None:
+    """Exige identidade de admin válida (StaffUser logado / token / Discord)."""
+    return None
+
+
+async def require_owner(staff: StaffUser = Depends(current_staff)) -> StaffUser:
+    """Exige role owner (gestão de staff)."""
+    if staff.role != "owner":
+        raise HTTPException(status_code=403, detail="somente owner pode gerenciar a equipe")
+    return staff
 
 
 # ── Qualificação de mapas ──────────────────────────────────────────────────
@@ -96,6 +148,18 @@ class ApplyDeltaRequest(BaseModel):
 class ApplySuggestionRequest(BaseModel):
     reviewer: str = "staff"
     delta_override: float | None = None
+
+
+class EnqueueRequest(BaseModel):
+    difficulty_id: int
+    method: str = "mix"  # ml | perf | mix
+
+
+class DifficultyPreviewRequest(BaseModel):
+    difficulty_id: int
+    method: str = "mix"  # ml | perf | mix
+    seed: int | None = None
+    noise_sigma: float = 0.47
 
 
 @router.post("/maps/qualify")
@@ -451,6 +515,64 @@ async def analyze(
         raise HTTPException(status_code=404, detail=str(exc))
 
 
+@router.post("/reweight/enqueue")
+async def enqueue(
+    req: EnqueueRequest,
+    staff: StaffUser = Depends(current_staff),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Enfileira reweight manual de uma dificuldade (aplicado no próximo batch).
+
+    Reason honesto ML/perf conforme o método escolhido. NÃO muda as stars agora.
+    """
+    try:
+        suggestion = await enqueue_manual(
+            db, difficulty_id=req.difficulty_id, method=req.method, reviewer=staff.ss_id
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return {
+        "id": suggestion.id,
+        "difficulty_id": suggestion.difficulty_id,
+        "delta_stars": suggestion.delta_stars,
+        "suggested_stars": suggestion.suggested_stars,
+        "status": suggestion.status,
+        "reason": suggestion.reason,
+    }
+
+
+@router.delete("/reweight/enqueue/{difficulty_id}")
+async def dequeue(
+    difficulty_id: int,
+    _: None = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Remove a dificuldade da fila manual de reweight (não aplica)."""
+    removed = await remove_manual_queue(db, difficulty_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail="dificuldade não está na fila manual")
+    return {"ok": True}
+
+
+@router.post("/reweight/preview-difficulty")
+async def preview_one(
+    req: DifficultyPreviewRequest,
+    _: None = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Preview de UMA dificuldade: delta pelo método + percentis com ruído seedado."""
+    try:
+        return await preview_difficulty(
+            db,
+            req.difficulty_id,
+            method=req.method,
+            seed=req.seed,
+            noise_sigma=req.noise_sigma,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
 @router.post("/reweight/apply-delta")
 async def apply_delta_endpoint(
     req: ApplyDeltaRequest,
@@ -711,3 +833,75 @@ async def delete_webhook(
         raise HTTPException(status_code=404, detail="webhook não encontrado")
     await db.delete(webhook)
     await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Staff (equipe do admin) — autenticada por Steam session contra staff_users
+# ---------------------------------------------------------------------------
+
+
+class AddStaffRequest(BaseModel):
+    ss_id: str
+    role: str = "staff"
+
+
+@router.get("/me")
+async def admin_me(staff: StaffUser = Depends(current_staff)) -> dict:
+    """Identidade do admin logado (gate do frontend)."""
+    return {"ss_id": staff.ss_id, "name": staff.name, "role": staff.role}
+
+
+@router.get("/staff")
+async def list_staff(_: None = Depends(require_admin), db: AsyncSession = Depends(get_db)) -> dict:
+    rows = (await db.scalars(select(StaffUser).order_by(StaffUser.role, StaffUser.ss_id))).all()
+    return {"items": [_staff_item(s) for s in rows]}
+
+
+@router.post("/staff")
+async def add_staff(
+    body: AddStaffRequest,
+    _: StaffUser = Depends(require_owner),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Adiciona um membro da equipe pelo Steam ID (ss_id)."""
+    ss_id = body.ss_id.strip()
+    if not (ss_id.isdigit() and len(ss_id) == 17):
+        raise HTTPException(status_code=422, detail="ss_id inválido (deve ser o Steam ID de 17 dígitos)")
+    if await db.scalar(select(StaffUser).where(StaffUser.ss_id == ss_id).limit(1)):
+        raise HTTPException(status_code=409, detail="esse ss_id já é da equipe")
+
+    player = await db.scalar(select(Player).where(Player.ss_id == ss_id).limit(1))
+    role = body.role if body.role in ("owner", "staff") else "staff"
+    member = StaffUser(ss_id=ss_id, role=role, name=player.name if player else None, created_by="admin")
+    db.add(member)
+    await db.commit()
+    await db.refresh(member)
+    return _staff_item(member)
+
+
+@router.delete("/staff/{member_id}")
+async def remove_staff(
+    member_id: int,
+    me: StaffUser = Depends(require_owner),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Remove um membro; não permite remover o último owner."""
+    member = await db.get(StaffUser, member_id)
+    if member is None:
+        raise HTTPException(status_code=404, detail="membro não encontrado")
+
+    owners = (
+        await db.scalars(select(StaffUser).where(StaffUser.role == "owner").order_by(StaffUser.id))
+    ).all()
+    if member.role == "owner" and len(owners) <= 1:
+        raise HTTPException(status_code=422, detail="não é possível remover o último owner")
+    if member.ss_id == me.ss_id:
+        raise HTTPException(status_code=422, detail="você não pode se remover (use outro owner)")
+
+    await db.delete(member)
+    await db.commit()
+    return {"ok": True}
+
+
+def _staff_item(m: StaffUser) -> dict:
+    return {"id": m.id, "ss_id": m.ss_id, "name": m.name, "role": m.role}

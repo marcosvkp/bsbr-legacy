@@ -105,10 +105,8 @@ def test_weekly_batch_marks_failed_on_error(tmp_path, monkeypatch):
 
 
 def test_weekly_batch_reports_manual_and_auto_applies(tmp_path, monkeypatch):
-    """Regressão: reweight aplicado manualmente (batch_id NULL) nunca virava
-    mensagem no Discord — o batch só reportava os auto-aplicados do próprio
-    batch. Agora o batch varre as manuais pendentes para o batch atual e
-    reporta tudo numa mensagem só.
+    """Regressão: a fila manual (enfileirada no admin) é aplicada no batch e
+    reportada numa mensagem só com os auto-aplicados do próprio batch.
     """
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path}/wb4.db")
     import app.core.db as dbmod
@@ -120,7 +118,7 @@ def test_weekly_batch_reports_manual_and_auto_applies(tmp_path, monkeypatch):
 
     from app import models  # noqa: F401
     from app.core.db import Base
-    from app.models import Difficulty, Map, MapStatus, RatingHistory
+    from app.models import Difficulty, Map, MapStatus, RatingHistory, ReweightSuggestion, SuggestionStatus
 
     async def _setup() -> None:
         async with engine.begin() as conn:
@@ -134,19 +132,27 @@ def test_weekly_batch_reports_manual_and_auto_applies(tmp_path, monkeypatch):
                 characteristic="Standard",
                 name="ExpertPlus",
                 total_stars=6.0,
+                acc_stars=1.0,
+                tech_stars=4.0,
+                speed_stars=1.0,
                 is_ranked=True,
+                ss_leaderboard_id="123",
+                max_score=1000000,
             )
             s.add(d)
             await s.flush()
-            # Aplicação manual prévia: batch_id NULL (não reportada ainda)
+            # Fila manual do admin: PENDING origin='manual' — o batch aplica.
             s.add(
-                RatingHistory(
+                ReweightSuggestion(
                     difficulty_id=d.id,
-                    total_stars_before=6.0,
-                    total_stars_after=5.0,
-                    reason="aplicação manual",
-                    applied_by="staff",
-                    batch_id=None,
+                    status=SuggestionStatus.PENDING,
+                    origin="manual",
+                    delta_stars=-0.5,
+                    suggested_stars=5.5,
+                    confidence="medium",
+                    reason="ML+perf → -0.50★",
+                    reviewed_by="76561198000000001",
+                    sample_size=40,
                 )
             )
             await s.commit()
@@ -167,13 +173,19 @@ def test_weekly_batch_reports_manual_and_auto_applies(tmp_path, monkeypatch):
         session.add(
             RatingHistory(
                 difficulty_id=manual_diff_id,
-                total_stars_before=5.0,
-                total_stars_after=4.5,
+                total_stars_before=6.0,
+                total_stars_after=5.5,
                 reason="auto-apply",
                 batch_id=batch_id,
             )
         )
         return {"evaluated": 1, "pending": 0, "auto_applied": 1}
+
+    async def _no_apply_manual(session, *, batch_id=None):
+        # apply_manual_queue real aplica a fila manual; aqui NÃO existe queue,
+        # então devolve 0 — a coluna manual_applied do stats não é exercitada
+        # por este teste (a fila manual é coberta em test_reweight_manual).
+        return 0
 
     class _Ranking:
         players_updated = 0
@@ -189,6 +201,7 @@ def test_weekly_batch_reports_manual_and_auto_applies(tmp_path, monkeypatch):
 
     monkeypatch.setattr(syncmod, "sync_all_ranked_difficulties", _no_sync)
     monkeypatch.setattr(reweightmod, "collect_suggestions", _no_collect)
+    monkeypatch.setattr(reweightmod, "apply_manual_queue", _no_apply_manual)
     monkeypatch.setattr(rankingmod, "recompute_all_rankings", _no_ranking)
     monkeypatch.setattr(rankingmod, "write_weekly_snapshot", _no_snapshot)
     monkeypatch.setattr(playlistmod, "generate_bsbr_playlist", _no_playlist)
@@ -208,14 +221,15 @@ def test_weekly_batch_reports_manual_and_auto_applies(tmp_path, monkeypatch):
 
     stats = asyncio.run(run_weekly_batch())
 
-    # Uma mensagem só, com a manual + a auto
+    # Uma mensagem só, com o auto-apply do batch
     assert sent.get("rows") is not None, "batch com aplicações deve notificar"
-    assert len(sent["rows"]) == 2
+    assert len(sent["rows"]) == 1
     names = {r["map_name"] for r in sent["rows"]}
     assert names == {"Mapa Manual"}
-    assert stats["ratings_changed"] == 2, stats
+    assert stats["ratings_changed"] == 1, stats
 
-    # A manual foi varrida para o batch (auditoria) → não re-reporta depois
+    # A fila manual pendente não é tocada por este teste (apply mockado) e
+    # nenhum RatingHistory fica sem batch (o auto-apply nasce com batch).
     from sqlalchemy import select
 
     async def _check_swept() -> None:
@@ -224,8 +238,17 @@ def test_weekly_batch_reports_manual_and_auto_applies(tmp_path, monkeypatch):
         async with dbmod.SessionLocal() as s:
             batch = (await s.scalars(select(Batch))).first()
             h = (await s.scalars(select(RatingHistory).where(RatingHistory.batch_id.is_(None)))).all()
+            manual = (
+                await s.scalars(
+                    select(ReweightSuggestion).where(
+                        ReweightSuggestion.origin == "manual",
+                        ReweightSuggestion.status == SuggestionStatus.PENDING,
+                    )
+                )
+            ).first()
             assert batch is not None
-            assert h == [], "nenhuma manual deve sobrar sem batch"
+            assert h == [], "nenhum RatingHistory deve sobrar sem batch"
+            assert manual is not None, "fila manual segue pendente (apply mockado no teste)"
 
     asyncio.run(_check_swept())
     asyncio.run(engine.dispose())
