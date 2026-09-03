@@ -73,23 +73,28 @@ async def current_staff(
     Distingue 401 (sem sessão válida) de 403 (logado mas não é staff) para o
     gate do frontend saber entre "Entrar com Steam" e "acesso restrito".
     """
-    # 1. Sessão OAuth Discord (legado/opcional)
-    if admin_session_ok(bsbr_admin_session):
-        return StaffUser(ss_id="discord-admin", role="staff", name="Discord admin")
-
-    # 2. X-Admin-Token de emergência (igual ao admin_token configurado)
-    expected = get_settings().admin_token
-    if expected and x_admin_token == expected:
-        return StaffUser(ss_id="token-admin", role="owner", name="Admin")
-
-    # 3. Sessão Steam validada contra staff_users
+    # 1. Sessão Steam validada contra staff_users (fonte primária de identidade,
+    #    preserva role owner/staff real da tabela)
     ss_id = verify_cookie(bsbr_user_session) if bsbr_user_session else None
     if ss_id is not None:
         staff = await db.scalar(select(StaffUser).where(StaffUser.ss_id == ss_id).limit(1))
         if staff is not None:
             return staff
-        # Sessão válida, mas o jogador não faz parte da equipe
+
+    # 2. X-Admin-Token de emergência (igual ao admin_token configurado) — vence a
+    #    sessão Steam de um jogador que não é staff (ex.: admin com token aberto
+    #    enquanto logado no site)
+    expected = get_settings().admin_token
+    if expected and x_admin_token == expected:
+        return StaffUser(ss_id="token-admin", role="owner", name="Admin")
+
+    # 3. Sessão Steam válida mas o jogador não faz parte da equipe
+    if ss_id is not None:
         raise HTTPException(status_code=403, detail="acesso restrito à equipe do BSBR")
+
+    # 4. Sessão OAuth Discord (legado/opcional)
+    if admin_session_ok(bsbr_admin_session):
+        return StaffUser(ss_id="discord-admin", role="staff", name="Discord admin")
 
     # Token informado porém errado → tentativa de acesso negada (403).
     if x_admin_token:
