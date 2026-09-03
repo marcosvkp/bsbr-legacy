@@ -21,13 +21,19 @@ async def live_recent(limit: int = Query(20, ge=1, le=50)) -> dict:
 
 
 @router.websocket("/ws/live")
-async def ws_live(websocket: WebSocket) -> None:
-    """Stream em tempo real dos scores ao vivo (ScoreSaber + BeatLeader)."""
+async def ws_live(websocket: WebSocket, nosend: bool = False) -> None:
+    """Stream em tempo real dos scores ao vivo (ScoreSaber + BeatLeader).
+
+    ``nosend=true`` omite o snapshot dos últimos recents — o cliente recebe
+    apenas os scores que chegarem DEPOIS da conexão (sem histórico).
+    """
     await websocket.accept()
     try:
         # Estado inicial: últimos scores para o cliente não ficar em branco
-        for item in await recent_scores(20):
-            await websocket.send_text(__import__("orjson").dumps(item).decode())
+        # (omitido quando nosend=true — só interessa o que chegar daqui pra frente)
+        if not nosend:
+            for item in await recent_scores(20):
+                await websocket.send_text(__import__("orjson").dumps(item).decode())
     except Exception:
         pass
 
