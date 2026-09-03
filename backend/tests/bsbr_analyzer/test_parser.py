@@ -119,3 +119,37 @@ def test_v2_has_no_chains_arcs_events():
     bm.parse_json(to_v2([(0.0, 0, 0, 0, 1)]))
     assert bm.chains == [] and bm.arcs == []
     assert bm.bpm_events == [] and bm.njs_events == []
+
+
+def test_v41_chains_arcs_use_hb_tb_and_tolerate_encoded_color():
+    """V4.1: chains/arcs têm hb/tb (não b); chainsData c é codificado.
+
+    Regressão: mapas 1.40+ (ex.: São Paulo - The Weeknd) crashavam com
+    KeyError('b')/NoteColor inválido e ficavam sem predição do ML.
+    """
+    chart = {
+        "version": "4.1.0",
+        "colorNotes": [{"b": 1.0, "i": 0}],
+        "colorNotesData": [{"x": 0, "y": 0, "c": 1, "d": 2, "a": 0}],
+        "bombNotes": [{"b": 2.0}],
+        "bombNotesData": [{"x": 2}],
+        "obstacles": [{"b": 3.0}],
+        "obstaclesData": [{"d": 0.5, "w": 1, "h": 5}],
+        "chains": [
+            {"hb": 4.0, "tb": 4.5, "i": 1},
+            {"hb": 6.0, "tb": 6.5, "i": 2},
+        ],
+        "chainsData": [{"tx": 3, "ty": 2, "c": 6, "s": 0.9}, {"tx": 2, "ty": 2, "c": 12, "s": 1.0}],
+        "arcs": [{"hb": 8.0, "tb": 10.0, "ai": 0}],
+        "arcsData": [{"m": 1.0, "tm": 0.5}],
+    }
+    bm = Beatmap()
+    bm.parse_json(chart)
+    assert len(bm.chains) == 2
+    assert bm.chains[0].b == 4.0
+    assert bm.chains[1].tail_in_beats == 6.5
+    # c codificado (6/12 não são NoteColor válido) não derruba o parse
+    assert bm.chains[0].c in (NoteColor.RED, NoteColor.BLUE)
+    assert len(bm.arcs) == 1
+    assert bm.arcs[0].b == 8.0 and bm.arcs[0].tail_in_beats == 10.0
+    assert len(bm.notes) == 1 and len(bm.bombs) == 1

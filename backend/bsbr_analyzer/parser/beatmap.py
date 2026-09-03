@@ -103,6 +103,14 @@ class Beatmap:
                         state[key] = value
             return state
 
+        def safe_color(value: Any, fallback: NoteColor = NoteColor.RED) -> NoteColor:
+            """Cor tolerante: chainsData/arcsData V4.1 codificam c de forma
+            composta (não apenas 0/1/3); nunca deve derrubar o parse."""
+            try:
+                return NoteColor(int(value))
+            except (ValueError, TypeError):
+                return fallback
+
         # Notas (vermelhas/azuis)
         color_data = data.get("colorNotesData") or []
         state = base_state(color_data, {"x": 0, "y": 0, "c": 0, "d": 0, "a": 0})
@@ -160,6 +168,9 @@ class Beatmap:
             )
 
         # Chains (V4.1 — delta em chainsData)
+        # Cada chain tem hb (head beat) e tb (tail beat); ``i`` indexa
+        # chainsData (tx/ty/c/s do tail). O head x/y/c/d herda do estado
+        # corrente das notas; se ``hb`` não existir, cai para ``b`` (V4.0).
         chain_data = data.get("chainsData") or []
         state = base_state(
             chain_data,
@@ -171,21 +182,21 @@ class Beatmap:
                 apply_delta(state, chain_data[i])
             self.chains.append(
                 Chain(
-                    b=float(ch["b"]),
+                    b=float(ch.get("hb", ch.get("b", 0.0))),
                     x=int(state["x"]),
                     y=int(state["y"]),
-                    c=NoteColor(state["c"]),
+                    c=safe_color(state["c"]),
                     d=NoteCutDirection(state["d"]),
                     a=int(state.get("a", 0)),
                     tx=int(state.get("tx", 0)),
                     ty=int(state.get("ty", 0)),
-                    tail_in_beats=float(state.get("tb", 0.0)),
+                    tail_in_beats=float(ch.get("tb", state.get("tb", 0.0))),
                     slice_count=int(state.get("sc", 8)),
                     squish=float(state.get("s", 1.0)),
                 )
             )
 
-        # Arcs (V4.1 — delta em arcsData)
+        # Arcs (V4.1 — delta em arcsData; tempo em hb/tb)
         arc_data = data.get("arcsData") or []
         state = base_state(
             arc_data,
@@ -197,15 +208,15 @@ class Beatmap:
                 apply_delta(state, arc_data[i])
             self.arcs.append(
                 Arc(
-                    b=float(ar["b"]),
+                    b=float(ar.get("hb", ar.get("b", 0.0))),
                     x=int(state["x"]),
                     y=int(state["y"]),
-                    c=NoteColor(state["c"]),
+                    c=safe_color(state["c"]),
                     d=NoteCutDirection(state["d"]),
                     a=int(state.get("a", 0)),
                     tx=int(state.get("tx", 0)),
                     ty=int(state.get("ty", 0)),
-                    tail_in_beats=float(state.get("tb", 0.0)),
+                    tail_in_beats=float(ar.get("tb", state.get("tb", 0.0))),
                     multiplier=float(state.get("mu", 1.0)),
                     tail_multiplier=float(state.get("tmu", 1.0)),
                     anchor_mode=int(state.get("m", 0)),

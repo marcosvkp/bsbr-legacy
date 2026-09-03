@@ -54,8 +54,10 @@ async def _ml_stars_by_difficulty(map_source: str | None) -> dict[str, float] | 
             if d.total_stars and d.characteristic == "Standard"
         }
     except Exception:
-        result = {}
-    _ML_CACHE[map_source] = result
+        # Falha (rede/parse): NÃO cacheia — próxima chamada re-tenta.
+        return None
+    if result:
+        _ML_CACHE[map_source] = result
     return result or None
 
 
