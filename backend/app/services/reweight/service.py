@@ -494,7 +494,7 @@ async def analyze_source(
             "name": map_.name,
             "mapper": map_.mapper,
             "bpm": map_.bpm,
-            "status": str(map_.status),
+            "status": map_.status.value if isinstance(map_.status, MapStatus) else str(map_.status),
         },
         "difficulties": items,
     }
