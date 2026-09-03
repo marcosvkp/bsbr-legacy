@@ -25,6 +25,7 @@ from app.models import (
     Score,
     SuggestionStatus,
 )
+from app.services.pp_engine import decompose_pp
 from app.services.reweight import (
     AUTO_APPLY_MAX,
     ReweightResult,
@@ -242,7 +243,12 @@ async def collect_suggestions(
 
 
 async def apply_suggestion(
-    session: AsyncSession, suggestion_id: int, *, reviewer: str, batch_id: int | None = None
+    session: AsyncSession,
+    suggestion_id: int,
+    *,
+    reviewer: str,
+    batch_id: int | None = None,
+    delta_override: float | None = None,
 ) -> ReweightSuggestion:
     suggestion = await session.get(ReweightSuggestion, suggestion_id)
     if suggestion is None:
@@ -253,22 +259,40 @@ async def apply_suggestion(
     if difficulty is None or difficulty.total_stars is None:
         raise ValueError(f"dificuldade da sugestão {suggestion_id} inválida")
 
+    # delta_override: o staff decide o ajuste (não necessariamente o sugerido)
+    delta = delta_override if delta_override is not None else (suggestion.delta_stars or 0.0)
+    suggested = max(0.1, float(difficulty.total_stars) + delta)
+
     result = ReweightResult(
         sample_size=suggestion.sample_size or 0,
         weighted_acc=None,
         median_acc=suggestion.observed_acc,
         fc_rate=None,
         expected_acc=suggestion.expected_acc,
-        delta_stars=suggestion.delta_stars or 0.0,
-        suggested_stars=suggestion.suggested_stars or difficulty.total_stars,
+        delta_stars=delta,
+        suggested_stars=suggested,
         confidence=suggestion.confidence or "low",
-        direction="keep",
+        direction="increase" if delta > 0.05 else ("decrease" if delta < -0.05 else "keep"),
         reason=suggestion.reason or "aplicação manual",
         can_auto_apply=False,
     )
     await _apply_to_difficulty(session, difficulty, result, reviewed_by=reviewer, batch_id=batch_id)
     suggestion.status = SuggestionStatus.APPLIED
     suggestion.reviewed_by = reviewer
+
+    # Recalcular PP dos scores da dificuldade e re-agregar os jogadores afetados
+    await recompute_difficulty_scores(session, difficulty.id)
+    player_ids = (
+        (
+            await session.scalars(
+                select(Score.player_id).where(Score.difficulty_id == difficulty.id).distinct()
+            )
+        ).all()
+    )
+    from app.services.ranking import recompute_player
+
+    for pid in player_ids:
+        await recompute_player(session, pid)
     await session.commit()
     return suggestion
 
@@ -285,6 +309,211 @@ async def reject_suggestion(
     suggestion.reviewed_by = reviewer
     await session.commit()
     return suggestion
+
+
+async def recompute_difficulty_scores(session: AsyncSession, difficulty_id: int) -> int:
+    """Recalcula o PP/sub-PP de todos os scores de uma dificuldade.
+
+    Usado após uma mudança de stars (apply manual ou de sugestão): o PP de
+    cada score é recalculado com as stars NOVAS e o acc armazenado — sem
+    esperar o próximo sync. Retorna quantos scores foram atualizados.
+    """
+    difficulty = await session.get(Difficulty, difficulty_id)
+    if difficulty is None or difficulty.total_stars is None:
+        return 0
+    total = float(difficulty.total_stars)
+    share_acc, share_tech, share_speed = _shares_of(difficulty)
+    rows = (
+        (
+            await session.scalars(
+                select(Score).where(
+                    Score.difficulty_id == difficulty_id,
+                    Score.acc.is_not(None),
+                )
+            )
+        ).all()
+    )
+    updated = 0
+    for row in rows:
+        sub = decompose_pp(
+            total,
+            float(row.acc) * 100,
+            share_acc=share_acc,
+            share_tech=share_tech,
+            share_speed=share_speed,
+        )
+        row.pp = sub["pp_total"]
+        row.pp_acc = sub["pp_acc"]
+        row.pp_tech = sub["pp_tech"]
+        row.pp_speed = sub["pp_speed"]
+        updated += 1
+    await session.flush()
+    return updated
+
+
+async def apply_delta(
+    session: AsyncSession,
+    difficulty_id: int,
+    delta_stars: float,
+    reviewer: str,
+    *,
+    batch_id: int | None = None,
+) -> dict:
+    """Aplica um delta manual de stars em uma dificuldade com recálculo imediato.
+
+    Fluxo: escala sub-stars → RatingHistory (auditoria) → recalcula o PP dos
+    scores da dificuldade → re-agrega os jogadores afetados (recompute_player).
+    """
+    from app.services.ranking import recompute_player
+
+    difficulty = await session.get(Difficulty, difficulty_id)
+    if difficulty is None or difficulty.total_stars is None:
+        raise ValueError(f"dificuldade {difficulty_id} inválida")
+
+    old_stars = float(difficulty.total_stars)
+    new_total, new_acc, new_tech, new_speed = _scale_stars(old_stars, delta_stars, difficulty)
+    result = ReweightResult(
+        sample_size=0,
+        weighted_acc=None,
+        median_acc=None,
+        fc_rate=None,
+        expected_acc=None,
+        delta_stars=delta_stars,
+        suggested_stars=new_total,
+        confidence="manual",
+        direction="increase" if delta_stars > 0 else ("decrease" if delta_stars < 0 else "keep"),
+        reason=f"ajuste manual ({delta_stars:+.2f}★)",
+        can_auto_apply=False,
+    )
+    await _apply_to_difficulty(session, difficulty, result, reviewed_by=reviewer, batch_id=batch_id)
+
+    scores_updated = await recompute_difficulty_scores(session, difficulty_id)
+    player_ids = (
+        (
+            await session.scalars(
+                select(Score.player_id)
+                .where(Score.difficulty_id == difficulty_id)
+                .distinct()
+            )
+        ).all()
+    )
+    for pid in player_ids:
+        await recompute_player(session, pid)
+    await session.commit()
+    return {
+        "difficulty_id": difficulty_id,
+        "old_stars": round(old_stars, 2),
+        "new_stars": round(new_total, 2),
+        "scores_updated": scores_updated,
+        "players_affected": len(player_ids),
+    }
+
+
+async def analyze_source(
+    session: AsyncSession,
+    source: str | None = None,
+    *,
+    map_id: int | None = None,
+) -> dict:
+    """Análise de reweight de UM mapa (manual, não persiste nada).
+
+    Aceita ``map_id`` (mapa já no banco) ou ``source`` (ID/hash do BeatSaver).
+    Para cada dificuldade do mapa expõe: stars atuais, predição do ML
+    (``delta_ml``), análise de performance (``perf_delta``/acc observada vs
+    esperada) e o delta combinado (50/50). Dificuldades sem scores mostram
+    apenas o ML (confidence "none").
+    """
+    if map_id is not None:
+        map_ = await session.get(Map, map_id)
+        if map_ is None:
+            raise ValueError(f"mapa {map_id} não encontrado")
+    elif source:
+        map_ = await session.scalar(select(Map).where(Map.hash == source).limit(1))
+        if map_ is None:
+            map_ = await session.scalar(select(Map).where(Map.beatsaver_id == source).limit(1))
+        if map_ is None:
+            raise ValueError("mapa não encontrado no banco — analise pela qualificação")
+    else:
+        raise ValueError("informe source ou map_id")
+
+    ml = await _ml_stars_by_difficulty(map_.beatsaver_id or map_.hash)
+    difficulties = (
+        (
+            await session.scalars(
+                select(Difficulty).where(Difficulty.map_id == map_.id).order_by(Difficulty.id)
+            )
+        ).all()
+    )
+
+    items = []
+    for d in difficulties:
+        item: dict = {
+            "difficulty_id": d.id,
+            "name": d.name,
+            "is_ranked": d.is_ranked,
+            "current_stars": d.total_stars,
+            "ml_stars": (ml or {}).get(d.name),
+            "delta_ml": None,
+            "perf_delta": None,
+            "suggested_delta": None,
+            "direction": "keep",
+            "confidence": "none",
+            "sample_size": None,
+            "observed_acc": None,
+            "expected_acc": None,
+        }
+        if ml and d.name in ml and d.total_stars:
+            item["delta_ml"] = round(float(ml[d.name]) - float(d.total_stars), 2)
+
+        if d.is_ranked and d.total_stars:
+            scores = await _difficulty_scores(session, d.id)
+            base = analyze_difficulty(scores, float(d.total_stars))
+            item["sample_size"] = base.sample_size
+            item["observed_acc"] = base.median_acc
+            item["expected_acc"] = base.expected_acc
+            if base.confidence != "none":
+                item["confidence"] = base.confidence
+                item["perf_delta"] = base.delta_stars
+                delta_ml = item["delta_ml"]
+                if delta_ml is not None:
+                    delta_final = round(0.5 * delta_ml + 0.5 * base.delta_stars, 2)
+                    item["suggested_delta"] = delta_final
+                    item["direction"] = (
+                        "increase" if delta_final > 0.05 else ("decrease" if delta_final < -0.05 else "keep")
+                    )
+                else:
+                    item["suggested_delta"] = base.delta_stars
+                    item["direction"] = base.direction
+        items.append(item)
+
+    return {
+        "map": {
+            "id": map_.id,
+            "hash": map_.hash,
+            "beatsaver_id": map_.beatsaver_id,
+            "name": map_.name,
+            "mapper": map_.mapper,
+            "bpm": map_.bpm,
+            "status": str(map_.status),
+        },
+        "difficulties": items,
+    }
+
+
+def _shares_of(difficulty: Difficulty) -> tuple[float, float, float]:
+    """Shares acc/tech/speed na mesma normalização do sync (ingestão de PP)."""
+    total_share = (
+        float(difficulty.acc_stars or 0.0)
+        + float(difficulty.tech_stars or 0.0)
+        + float(difficulty.speed_stars or 0.0)
+    )
+    if total_share <= 0:
+        return 1.0, 0.0, 0.0
+    return (
+        float(difficulty.acc_stars or 0.0) / total_share,
+        float(difficulty.tech_stars or 0.0) / total_share,
+        float(difficulty.speed_stars or 0.0) / total_share,
+    )
 
 
 async def preview_suggestions(session: AsyncSession) -> dict:

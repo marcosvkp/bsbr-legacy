@@ -31,9 +31,11 @@ from app.models import (
 from app.services.qualification import approve_map, qualify_source
 from app.services.reweight.service import (
     apply_suggestion,
+    analyze_source,
     collect_suggestions,
     preview_suggestions,
     reject_suggestion,
+    apply_delta,
 )
 from app.services.suggestions import create_map_from_suggestion
 
@@ -78,6 +80,22 @@ class ApproveRequest(BaseModel):
 
 class DifficultyRankRequest(BaseModel):
     ranked: bool = True
+
+
+class AnalyzeRequest(BaseModel):
+    source: str = ""
+    map_id: int | None = None
+
+
+class ApplyDeltaRequest(BaseModel):
+    difficulty_id: int
+    delta_stars: float
+    reason: str | None = None
+
+
+class ApplySuggestionRequest(BaseModel):
+    reviewer: str = "staff"
+    delta_override: float | None = None
 
 
 @router.post("/maps/qualify")
@@ -403,14 +421,51 @@ async def run_preview(
 @router.post("/reweight/{suggestion_id}/apply")
 async def apply(
     suggestion_id: int,
-    reviewer: str = "staff",
+    req: ApplySuggestionRequest | None = None,
     _: None = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    suggestion = await apply_suggestion(db, suggestion_id, reviewer=reviewer)
+    """Aplica a sugestão; delta_override opcional ajusta o valor antes de aplicar."""
+    suggestion = await apply_suggestion(
+        db,
+        suggestion_id,
+        reviewer=(req.reviewer if req else "staff"),
+        delta_override=(req.delta_override if req else None),
+    )
     await cache.invalidate_prefix("rankings:")
     await cache.invalidate_prefix("map:")
+    await cache.invalidate_prefix("player:")
     return {"id": suggestion.id, "status": suggestion.status.value}
+
+
+@router.post("/reweight/analyze")
+async def analyze(
+    req: AnalyzeRequest,
+    _: None = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Análise de reweight de UM mapa (por map_id ou source BeatSaver) — não persiste."""
+    try:
+        return await analyze_source(db, req.source or None, map_id=req.map_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.post("/reweight/apply-delta")
+async def apply_delta_endpoint(
+    req: ApplyDeltaRequest,
+    _: None = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Aplica delta manual de stars em uma dificuldade com recálculo imediato."""
+    try:
+        result = await apply_delta(db, req.difficulty_id, req.delta_stars, reviewer="staff")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    await cache.invalidate_prefix("rankings:")
+    await cache.invalidate_prefix("map:")
+    await cache.invalidate_prefix("player:")
+    return result
 
 
 @router.post("/reweight/{suggestion_id}/reject")
